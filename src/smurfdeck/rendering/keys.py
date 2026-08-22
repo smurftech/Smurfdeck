@@ -8,7 +8,7 @@ from StreamDeck.ImageHelpers import PILHelper
 
 def numbered_key_image(deck: Any, number: int) -> bytes:
     """Render a high-contrast numbered test image in native device format."""
-    image = PILHelper.create_scaled_key_image(deck, background="#101827")
+    image = PILHelper.create_key_image(deck, background="#101827")
     draw = ImageDraw.Draw(image)
     text = str(number)
     font = _fitted_font(text, image.size)
@@ -35,4 +35,3 @@ def _fitted_font(
         except OSError:
             continue
     return ImageFont.load_default()
-
