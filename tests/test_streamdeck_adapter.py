@@ -1,0 +1,53 @@
+from smurfdeck.devices.base import DeckKeyEvent
+from smurfdeck.devices.streamdeck import StreamDeckDevice
+
+
+class FakeDeck:
+    callback = None
+    images: dict[int, bytes]
+
+    def __init__(self) -> None:
+        self.images = {}
+
+    def key_layout(self) -> tuple[int, int]:
+        return (5, 3)
+
+    def key_image_format(self) -> dict[str, object]:
+        return {"size": (72, 72)}
+
+    def deck_type(self) -> str:
+        return "Fake Deck"
+
+    def get_serial_number(self) -> str:
+        return "TEST-123"
+
+    def get_firmware_version(self) -> str:
+        return "1.0"
+
+    def set_key_callback(self, callback: object) -> None:
+        self.callback = callback
+
+    def reset(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def test_adapter_reports_device_information() -> None:
+    device = StreamDeckDevice(FakeDeck())
+    assert device.info.model == "Fake Deck"
+    assert device.info.geometry.key_count == 15
+    assert device.info.serial == "TEST-123"
+
+
+def test_adapter_translates_callback_to_event() -> None:
+    deck = FakeDeck()
+    device = StreamDeckDevice(deck)
+    events: list[DeckKeyEvent] = []
+    device.set_event_sink(events.append)
+    assert deck.callback is not None
+    deck.callback(deck, 2, True)
+    deck.callback(deck, 2, False)
+    assert events == [DeckKeyEvent(2, True), DeckKeyEvent(2, False)]
+

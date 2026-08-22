@@ -1,0 +1,49 @@
+[project]
+name = "smurfdeck"
+version = "0.1.0"
+description = "A personal Stream Deck controller for KDE Plasma on Wayland"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Smurftech" }]
+dependencies = [
+    # Binary distribution of python-evdev; it provides the same `evdev`
+    # package and UInput API without requiring kernel headers at build time.
+    "evdev-binary>=1.9.3,<2",
+    "pillow>=10.4,<13",
+    "pyside6>=6.8,<7",
+    # 0.10.0 is upstream but is not yet published on PyPI. Pin the reviewed
+    # upstream revision so installs remain reproducible until its PyPI release.
+    "streamdeck @ git+https://github.com/abcminiuser/python-elgato-streamdeck.git@6723b1b0388868381af16856a2e6cfddfdea30af",
+]
+
+[project.scripts]
+smurfdeck = "smurfdeck.app:main"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-cov>=6,<7",
+    "ruff>=0.9,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smurfdeck"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
