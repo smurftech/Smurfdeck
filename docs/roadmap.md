@@ -39,6 +39,10 @@
 The items above are implemented on the Milestone 4 branch and await physical
 KDE/Wayland visual acceptance.
 
+The physical keymap is anchored above a same-width, vertically scrollable key
+editor; the keymap itself never scrolls. Selecting an action-library item drives
+that shared editor directly so future action types follow the same interaction.
+
 ## Later editor enhancements
 
 - Add drag and drop from the action library, key-to-key movement, and undo/redo.

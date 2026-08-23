@@ -121,3 +121,18 @@ def test_key_preview_and_command_editor_reflect_selected_action(tmp_path) -> Non
     assert window._key_buttons[0].property("configured") is True
     window.close()
     app.processEvents()
+
+
+def test_action_library_selects_the_shared_key_editor(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    command_item = next(
+        window._action_list.item(row)
+        for row in range(window._action_list.count())
+        if window._action_list.item(row).text() == "Run command"
+    )
+    window._on_action_activated(command_item)
+    assert window._action_combo.currentData() == "command"
+    assert window._value_stack.currentWidget().layout() is not None
+    window.close()
+    app.processEvents()

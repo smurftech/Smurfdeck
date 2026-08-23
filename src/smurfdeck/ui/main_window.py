@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 
-from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QSignalBlocker, QSize, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -63,17 +64,25 @@ class HardwareEvents(QObject):
 class ResponsiveDeckCanvas(QWidget):
     """Centre and scale a physical-layout deck without distorting its keys."""
 
+    surface_width_changed = Signal(int)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("deckCanvas")
         self._columns, self._rows = 5, 3
         self._buttons: list[QToolButton] = []
+        self._surface_width = 0
         self.frame = QFrame(self)
         self.frame.setObjectName("deckFrame")
         self.grid = QGridLayout(self.frame)
         self.grid.setContentsMargins(18, 18, 18, 18)
         self.grid.setSpacing(12)
         self.setMinimumHeight(300)
+        self.setMaximumHeight(480)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+    def sizeHint(self) -> QSize:
+        return QSize(800, 460)
 
     def configure(
         self, columns: int, rows: int, buttons: list[QToolButton]
@@ -104,10 +113,13 @@ class ResponsiveDeckCanvas(QWidget):
         frame_height = 2 * margin + self._rows * key_size + gap * (self._rows - 1)
         self.frame.setGeometry(
             (self.width() - frame_width) // 2,
-            (self.height() - frame_height) // 2,
+            10,
             frame_width,
             frame_height,
         )
+        if frame_width != self._surface_width:
+            self._surface_width = frame_width
+            self.surface_width_changed.emit(frame_width)
         for button in self._buttons:
             button.setFixedSize(key_size, key_size)
 
@@ -145,7 +157,7 @@ class MainWindow(QMainWindow):
 
         self._action_list = QListWidget()
         self._populate_action_library()
-        self._action_list.itemDoubleClicked.connect(self._on_action_activated)
+        self._action_list.itemClicked.connect(self._on_action_activated)
         self._deck_canvas = ResponsiveDeckCanvas()
         self._key_grid = self._deck_canvas.grid
         self._canvas_title = QLabel()
@@ -231,7 +243,7 @@ class MainWindow(QMainWindow):
         search.textChanged.connect(self._filter_actions)
         left_layout.addWidget(search)
         left_layout.addWidget(self._action_list, 1)
-        help_text = QLabel("Double-click an action, configure it, then select Apply to key.")
+        help_text = QLabel("Select an action, configure it, then choose Apply to key.")
         help_text.setWordWrap(True)
         help_text.setObjectName("mutedText")
         left_layout.addWidget(help_text)
@@ -246,7 +258,7 @@ class MainWindow(QMainWindow):
         canvas_header.addStretch()
         canvas_header.addWidget(self._canvas_hint)
         canvas_layout.addLayout(canvas_header)
-        canvas_layout.addWidget(self._deck_canvas, 1)
+        canvas_layout.addWidget(self._deck_canvas)
         quick = QFrame()
         quick.setObjectName("quickEditor")
         quick_layout = QVBoxLayout(quick)
@@ -276,7 +288,19 @@ class MainWindow(QMainWindow):
         fields.setColumnStretch(1, 2)
         fields.setColumnStretch(2, 2)
         quick_layout.addLayout(fields)
-        canvas_layout.addWidget(quick)
+        quick_scroll = QScrollArea()
+        quick_scroll.setObjectName("quickScroll")
+        quick_scroll.setWidgetResizable(True)
+        quick_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        quick_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        quick_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        quick_scroll.setWidget(quick)
+        quick_scroll.setMinimumHeight(120)
+        quick_scroll.setMaximumHeight(190)
+        self._quick_scroll = quick_scroll
+        self._deck_canvas.surface_width_changed.connect(self._set_editor_width)
+        canvas_layout.addWidget(quick_scroll, 0, Qt.AlignmentFlag.AlignHCenter)
+        canvas_layout.addStretch(1)
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
@@ -329,6 +353,10 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setLayout(root_layout)
         self.setCentralWidget(root)
+
+    @Slot(int)
+    def _set_editor_width(self, width: int) -> None:
+        self._quick_scroll.setFixedWidth(width)
 
     @staticmethod
     def _small_button(text: str, callback: object, tooltip: str) -> QToolButton:
@@ -738,6 +766,8 @@ class MainWindow(QMainWindow):
             QMainWindow { background: #0f1621; }
             QWidget { color: #e7edf8; font-size: 13px; }
             QWidget#deckCanvas { background: #101824; }
+            QScrollArea#quickScroll { background: transparent; }
+            QScrollArea#quickScroll > QWidget > QWidget { background: transparent; }
             QWidget#toolbar { background: #0c131d; border-bottom: 1px solid #263447; }
             QLineEdit, QComboBox, QListWidget {
                 background: #0e1622; border: 1px solid #354257;
