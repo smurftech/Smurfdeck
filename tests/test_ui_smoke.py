@@ -88,3 +88,36 @@ def test_page_action_wraps_and_renders_the_destination(tmp_path) -> None:
     assert device.labels[0] == "Play"
     window.close()
     app.processEvents()
+
+
+def test_balanced_canvas_preserves_five_by_three_layout_and_scales(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    window.resize(1920, 900)
+    window.show()
+    app.processEvents()
+    assert window._key_grid.getItemPosition(4)[:2] == (0, 4)
+    assert window._key_grid.getItemPosition(5)[:2] == (1, 0)
+    assert 100 <= window._key_buttons[0].width() <= 150
+    assert window._key_buttons[0].width() == window._key_buttons[0].height()
+    window.close()
+    app.processEvents()
+
+
+def test_key_preview_and_command_editor_reflect_selected_action(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    window.config.active_profile.active_page.keys[0] = KeyConfig(
+        label="Build",
+        action_type="command",
+        action_value="make test",
+        working_directory="/tmp",
+    )
+    window._refresh_canvas()
+    assert window._key_preview.text() == "Build"
+    assert window._value_stack.currentWidget().layout() is not None
+    assert window._command_edit.text() == "make test"
+    assert window._working_directory_edit.text() == "/tmp"
+    assert window._key_buttons[0].property("configured") is True
+    window.close()
+    app.processEvents()

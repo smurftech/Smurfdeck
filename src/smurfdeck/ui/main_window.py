@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import suppress
 
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal, Slot
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -59,6 +60,58 @@ class HardwareEvents(QObject):
     action_finished = Signal(int, object)
 
 
+class ResponsiveDeckCanvas(QWidget):
+    """Centre and scale a physical-layout deck without distorting its keys."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("deckCanvas")
+        self._columns, self._rows = 5, 3
+        self._buttons: list[QToolButton] = []
+        self.frame = QFrame(self)
+        self.frame.setObjectName("deckFrame")
+        self.grid = QGridLayout(self.frame)
+        self.grid.setContentsMargins(18, 18, 18, 18)
+        self.grid.setSpacing(12)
+        self.setMinimumHeight(300)
+
+    def configure(
+        self, columns: int, rows: int, buttons: list[QToolButton]
+    ) -> None:
+        self._columns, self._rows = columns, rows
+        self._buttons = buttons
+        self._reflow()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._reflow()
+
+    def _reflow(self) -> None:
+        if not self._buttons or self.width() <= 0 or self.height() <= 0:
+            return
+        margin, gap = 18, 12
+        usable_width = min(max(self.width() - 48, 0), 1050)
+        usable_height = min(max(self.height() - 36, 0), 650)
+        key_size = int(
+            min(
+                (usable_width - 2 * margin - gap * (self._columns - 1)) / self._columns,
+                (usable_height - 2 * margin - gap * (self._rows - 1)) / self._rows,
+                150,
+            )
+        )
+        key_size = max(key_size, 58)
+        frame_width = 2 * margin + self._columns * key_size + gap * (self._columns - 1)
+        frame_height = 2 * margin + self._rows * key_size + gap * (self._rows - 1)
+        self.frame.setGeometry(
+            (self.width() - frame_width) // 2,
+            (self.height() - frame_height) // 2,
+            frame_width,
+            frame_height,
+        )
+        for button in self._buttons:
+            button.setFixedSize(key_size, key_size)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, store: ConfigStore | None = None) -> None:
         super().__init__()
@@ -82,6 +135,8 @@ class MainWindow(QMainWindow):
         )
 
         self._profile_combo, self._page_combo = QComboBox(), QComboBox()
+        self._profile_combo.setMaximumWidth(280)
+        self._page_combo.setMaximumWidth(280)
         self._device_status = QLabel("No device connected")
         self._detect_button = QPushButton("Detect device")
         self._detect_button.clicked.connect(self.detect_device)
@@ -91,8 +146,8 @@ class MainWindow(QMainWindow):
         self._action_list = QListWidget()
         self._populate_action_library()
         self._action_list.itemDoubleClicked.connect(self._on_action_activated)
-        self._key_grid = QGridLayout()
-        self._key_grid.setSpacing(10)
+        self._deck_canvas = ResponsiveDeckCanvas()
+        self._key_grid = self._deck_canvas.grid
         self._canvas_title = QLabel()
         self._canvas_title.setObjectName("canvasTitle")
         self._canvas_hint = QLabel()
@@ -108,6 +163,8 @@ class MainWindow(QMainWindow):
         self._action_combo.currentIndexChanged.connect(self._update_action_editor)
         self._value_edit = QLineEdit()
         self._value_edit.setPlaceholderText("Action value")
+        self._command_edit = QLineEdit()
+        self._command_edit.setPlaceholderText("Command and arguments (no shell syntax)")
         self._media_combo = QComboBox()
         for media_id, (media_label, _code) in MEDIA_ACTIONS.items():
             self._media_combo.addItem(media_label, media_id)
@@ -124,6 +181,7 @@ class MainWindow(QMainWindow):
         self._inspector_key, self._inspector_action = QLabel(), QLabel()
         self._inspector_value, self._inspector_position = QLabel(), QLabel()
         self._action_status = QLabel("Ready")
+        self._action_status.setProperty("state", "idle")
         self._recovery_notice = QLabel()
         self._recovery_notice.setWordWrap(True)
         self._recovery_notice.setObjectName("warningText")
@@ -147,20 +205,20 @@ class MainWindow(QMainWindow):
         top = QHBoxLayout()
         top.setContentsMargins(14, 10, 14, 10)
         top.addWidget(QLabel("Profile"))
-        top.addWidget(self._profile_combo, 1)
+        top.addWidget(self._profile_combo)
         top.addWidget(self._small_button("＋", self._add_profile, "New profile"))
         top.addWidget(self._small_button("✎", self._rename_profile, "Rename profile"))
         top.addWidget(self._small_button("⧉", self._duplicate_profile, "Duplicate profile"))
         top.addWidget(self._small_button("−", self._delete_profile, "Delete profile"))
         top.addSpacing(16)
         top.addWidget(QLabel("Page"))
-        top.addWidget(self._page_combo, 1)
+        top.addWidget(self._page_combo)
         top.addWidget(self._small_button("＋", self._add_page, "New page"))
         top.addWidget(self._small_button("✎", self._rename_page, "Rename page"))
         top.addWidget(self._small_button("←", lambda: self._move_page(-1), "Move page left"))
         top.addWidget(self._small_button("→", lambda: self._move_page(1), "Move page right"))
         top.addWidget(self._small_button("−", self._delete_page, "Delete page"))
-        top.addSpacing(18)
+        top.addStretch(1)
         top.addWidget(self._device_status)
         top.addWidget(self._detect_button)
 
@@ -177,6 +235,8 @@ class MainWindow(QMainWindow):
         help_text.setWordWrap(True)
         help_text.setObjectName("mutedText")
         left_layout.addWidget(help_text)
+        left.setMinimumWidth(210)
+        left.setMaximumWidth(300)
 
         canvas = QWidget()
         canvas_layout = QVBoxLayout(canvas)
@@ -186,24 +246,35 @@ class MainWindow(QMainWindow):
         canvas_header.addStretch()
         canvas_header.addWidget(self._canvas_hint)
         canvas_layout.addLayout(canvas_header)
-        deck_frame = QFrame()
-        deck_frame.setObjectName("deckFrame")
-        deck_frame.setLayout(self._key_grid)
-        deck_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        canvas_layout.addWidget(deck_frame, 1, Qt.AlignmentFlag.AlignCenter)
+        canvas_layout.addWidget(self._deck_canvas, 1)
         quick = QFrame()
         quick.setObjectName("quickEditor")
         quick_layout = QVBoxLayout(quick)
         quick_layout.addWidget(self._quick_title)
-        fields = QHBoxLayout()
-        fields.addWidget(self._label_edit, 2)
-        fields.addWidget(self._action_combo, 2)
-        fields.addWidget(self._trigger_combo, 2)
-        fields.addWidget(self._value_edit, 3)
-        fields.addWidget(self._media_combo, 3)
-        fields.addWidget(self._page_action_combo, 3)
-        fields.addWidget(self._working_directory_edit, 3)
-        fields.addWidget(self._apply_key_button)
+        fields = QGridLayout()
+        fields.setHorizontalSpacing(10)
+        fields.setVerticalSpacing(8)
+        fields.addWidget(self._label_edit, 0, 0)
+        fields.addWidget(self._action_combo, 0, 1)
+        fields.addWidget(self._trigger_combo, 0, 2)
+        fields.addWidget(self._apply_key_button, 0, 3, 2, 1)
+        self._value_stack = QStackedWidget()
+        self._empty_editor = QWidget()
+        self._value_stack.addWidget(self._empty_editor)
+        self._value_stack.addWidget(self._value_edit)
+        self._value_stack.addWidget(self._media_combo)
+        self._value_stack.addWidget(self._page_action_combo)
+        command_editor = QWidget()
+        command_fields = QHBoxLayout(command_editor)
+        command_fields.setContentsMargins(0, 0, 0, 0)
+        command_fields.setSpacing(10)
+        command_fields.addWidget(self._command_edit, 3)
+        command_fields.addWidget(self._working_directory_edit, 2)
+        self._value_stack.addWidget(command_editor)
+        fields.addWidget(self._value_stack, 1, 0, 1, 3)
+        fields.setColumnStretch(0, 2)
+        fields.setColumnStretch(1, 2)
+        fields.setColumnStretch(2, 2)
         quick_layout.addLayout(fields)
         canvas_layout.addWidget(quick)
 
@@ -211,11 +282,11 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(15, 14, 15, 14)
         right_layout.addWidget(self._heading("Selected key"))
-        preview = QLabel("S")
-        preview.setObjectName("keyPreview")
-        preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        preview.setFixedSize(76, 76)
-        right_layout.addWidget(preview, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._key_preview = QLabel("1")
+        self._key_preview.setObjectName("keyPreview")
+        self._key_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._key_preview.setFixedSize(76, 76)
+        right_layout.addWidget(self._key_preview, 0, Qt.AlignmentFlag.AlignHCenter)
         for caption, value in (
             ("KEY", self._inspector_key),
             ("ACTION", self._inspector_action),
@@ -236,19 +307,24 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(config_path)
         right_layout.addWidget(self._recovery_notice)
         right_layout.addStretch()
+        right.setMinimumWidth(250)
+        right.setMaximumWidth(340)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left)
         splitter.addWidget(canvas)
         splitter.addWidget(right)
-        splitter.setSizes([225, 680, 245])
+        splitter.setSizes([240, 760, 280])
         splitter.setStretchFactor(1, 1)
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
         root_layout = QVBoxLayout()
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
-        root_layout.addLayout(top)
+        toolbar = QWidget()
+        toolbar.setObjectName("toolbar")
+        toolbar.setLayout(top)
+        root_layout.addWidget(toolbar)
         root_layout.addWidget(splitter, 1)
         root = QWidget()
         root.setLayout(root_layout)
@@ -334,6 +410,10 @@ class MainWindow(QMainWindow):
             key = page.keys.get(index, KeyConfig())
             button.setText(key.label.strip() or str(index + 1))
             button.setToolTip(ACTION_LABELS.get(key.action_type, key.action_type))
+            button.setProperty("configured", key.action_type != "none")
+            button.setProperty("actionState", "")
+            button.style().unpolish(button)
+            button.style().polish(button)
         if self._key_buttons:
             self._select_key(min(self._selected_key, len(self._key_buttons) - 1))
         self._render_active_page()
@@ -345,11 +425,11 @@ class MainWindow(QMainWindow):
         self._key_buttons.clear()
         for index in range(columns * rows):
             button = QToolButton()
-            button.setMinimumSize(76, 62)
-            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             button.clicked.connect(lambda _checked=False, key=index: self._select_key(key))
             self._key_grid.addWidget(button, index // columns, index % columns)
             self._key_buttons.append(button)
+        self._deck_canvas.configure(columns, rows, self._key_buttons)
         self._refresh_canvas()
 
     def _select_key(self, index: int) -> None:
@@ -366,6 +446,7 @@ class MainWindow(QMainWindow):
         self._label_edit.setText(key.label)
         self._action_combo.setCurrentIndex(max(self._action_combo.findData(key.action_type), 0))
         self._value_edit.setText(key.action_value)
+        self._command_edit.setText(key.action_value)
         self._media_combo.setCurrentIndex(max(self._media_combo.findData(key.action_value), 0))
         self._page_action_combo.setCurrentIndex(
             max(self._page_action_combo.findData(key.action_value), 0)
@@ -374,6 +455,7 @@ class MainWindow(QMainWindow):
         self._trigger_combo.setCurrentIndex(max(self._trigger_combo.findData(key.trigger), 0))
         self._update_action_editor()
         self._inspector_key.setText(key.label or f"Key {index + 1}")
+        self._key_preview.setText((key.label.strip() or str(index + 1))[:5])
         self._inspector_action.setText(ACTION_LABELS.get(key.action_type, key.action_type))
         self._inspector_value.setText(key.action_value or "Not configured")
         row, column = divmod(index, self._columns)
@@ -387,6 +469,8 @@ class MainWindow(QMainWindow):
             if action_type == "media"
             else str(self._page_action_combo.currentData())
             if action_type == "page"
+            else self._command_edit.text().strip()
+            if action_type == "command"
             else self._value_edit.text().strip()
         )
         working_directory = self._working_directory_edit.text().strip()
@@ -420,14 +504,20 @@ class MainWindow(QMainWindow):
         self._action_combo.setCurrentIndex(
             self._action_combo.findData(item.data(Qt.ItemDataRole.UserRole))
         )
-        self._value_edit.setFocus()
+        if str(self._action_combo.currentData()) == "command":
+            self._command_edit.setFocus()
+        else:
+            self._value_edit.setFocus()
 
     def _update_action_editor(self, _index: int | None = None) -> None:
         action_type = str(self._action_combo.currentData())
-        self._media_combo.setVisible(action_type == "media")
-        self._page_action_combo.setVisible(action_type == "page")
-        self._working_directory_edit.setVisible(action_type == "command")
-        self._value_edit.setVisible(action_type not in {"media", "page", "none"})
+        stack_index = {
+            "none": 0,
+            "media": 2,
+            "page": 3,
+            "command": 4,
+        }.get(action_type, 1)
+        self._value_stack.setCurrentIndex(stack_index)
         if action_type == "keyboard":
             self._value_edit.setPlaceholderText("Example: Ctrl+Shift+S")
         elif action_type == "launch":
@@ -435,7 +525,7 @@ class MainWindow(QMainWindow):
         elif action_type == "open":
             self._value_edit.setPlaceholderText("File, folder, or https:// address")
         elif action_type == "command":
-            self._value_edit.setPlaceholderText("Command and arguments (no shell syntax)")
+            self._command_edit.setPlaceholderText("Command and arguments (no shell syntax)")
         else:
             self._value_edit.setPlaceholderText("No value required")
 
@@ -604,15 +694,32 @@ class MainWindow(QMainWindow):
             key = self._active_page().keys.get(event.key, KeyConfig())
             result = self._action_engine.handle_key(event.key, key, event.pressed)
             if result.executed:
-                prefix = "✓" if result.success else "⚠"
-                self._action_status.setText(f"{prefix} {result.message}")
+                state = "running" if "running" in result.message.casefold() else (
+                    "success" if result.success else "failure"
+                )
+                self._show_action_result(event.key, result.message, state)
 
     @Slot(int, object)
     def _on_action_finished(self, key_index: int, result: object) -> None:
         if not hasattr(result, "success") or not hasattr(result, "message"):
             return
-        prefix = "✓" if result.success else "⚠"
-        self._action_status.setText(f"{prefix} Key {key_index + 1}: {result.message}")
+        state = "success" if result.success else "failure"
+        self._show_action_result(key_index, str(result.message), state, include_key=True)
+
+    def _show_action_result(
+        self, key_index: int, message: str, state: str, include_key: bool = False
+    ) -> None:
+        prefix = {"running": "●", "success": "✓", "failure": "⚠"}[state]
+        key_text = f"Key {key_index + 1}: " if include_key else ""
+        self._action_status.setText(f"{prefix} {key_text}{message}")
+        self._action_status.setProperty("state", state)
+        self._action_status.style().unpolish(self._action_status)
+        self._action_status.style().polish(self._action_status)
+        if 0 <= key_index < len(self._key_buttons):
+            button = self._key_buttons[key_index]
+            button.setProperty("actionState", state)
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def _show_detection_error(self, error: Exception) -> None:
         self._device_status.setText("Device error")
@@ -630,6 +737,8 @@ class MainWindow(QMainWindow):
             """
             QMainWindow { background: #0f1621; }
             QWidget { color: #e7edf8; font-size: 13px; }
+            QWidget#deckCanvas { background: #101824; }
+            QWidget#toolbar { background: #0c131d; border-bottom: 1px solid #263447; }
             QLineEdit, QComboBox, QListWidget {
                 background: #0e1622; border: 1px solid #354257;
                 border-radius: 5px; padding: 5px; color: #e7edf8;
@@ -648,6 +757,9 @@ class MainWindow(QMainWindow):
                 background: #0e1622; border: 1px solid #354257;
                 border-radius: 5px; padding: 8px;
             }
+            QLabel#inspectorValue[state="running"] { color: #75ddf8; }
+            QLabel#inspectorValue[state="success"] { color: #70d7a5; }
+            QLabel#inspectorValue[state="failure"] { color: #f0a65b; }
             QLabel#keyPreview {
                 background: #0b1724; border: 2px solid #2db7e2;
                 border-radius: 10px; color: #74daf7;
@@ -655,7 +767,6 @@ class MainWindow(QMainWindow):
             }
             QFrame#deckFrame {
                 background: #05090f; border-radius: 14px;
-                padding: 14px; max-width: 570px;
             }
             QFrame#quickEditor {
                 background: #162131; border: 1px solid #3a485d;
@@ -668,9 +779,14 @@ class MainWindow(QMainWindow):
             }
             QFrame#deckFrame QToolButton {
                 background: #101c2a; border: 2px solid #2b3b50;
-                border-radius: 9px; color: #eef8ff; font-weight: 600;
+                border-radius: 11px; color: #eef8ff; font-weight: 600;
+                font-size: 14px;
             }
             QFrame#deckFrame QToolButton[selected="true"] { border-color: #31bfea; }
+            QFrame#deckFrame QToolButton[configured="true"] { background: #122536; }
+            QFrame#deckFrame QToolButton[actionState="running"] { border-color: #75ddf8; }
+            QFrame#deckFrame QToolButton[actionState="success"] { border-color: #70d7a5; }
+            QFrame#deckFrame QToolButton[actionState="failure"] { border-color: #f0a65b; }
             QFrame#deckFrame QToolButton[pressed="true"] {
                 background: #17425a; border-color: #75ddf8;
             }

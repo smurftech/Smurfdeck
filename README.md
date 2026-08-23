@@ -10,6 +10,10 @@ editor, manages profiles and pages, assigns actions and labels to keys,
 updates the physical device when pages change, and reports key-down/key-up state
 in the desktop UI.
 
+The editor keeps deliberate action-library and inspector widths while the
+central deck scales responsively across normal and ultrawide displays. Its key
+grid always preserves the connected device's physical rows and columns.
+
 ## Setup
 
 Install `uv`, then run:

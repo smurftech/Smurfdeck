@@ -35,6 +35,12 @@
   selected/pressed/action-result states to match the approved mockup.
 - Improve the quick editor and inspector so action-specific controls appear
   cleanly without stretching into sparse ultrawide rows.
+
+The items above are implemented on the Milestone 4 branch and await physical
+KDE/Wayland visual acceptance.
+
+## Later editor enhancements
+
 - Add drag and drop from the action library, key-to-key movement, and undo/redo.
 - Add key icon, label, colour, and background editing with live device preview.
 
