@@ -20,7 +20,7 @@
   on-screen keys.
 - Add configurable command timeouts and optional environment variables.
 
-## Editor and visual fidelity
+## Editor and visual fidelity — completed and physically verified
 
 - Bring the implementation into close visual alignment with the approved
   **Balanced** concept rather than treating the current functional shell as the
@@ -35,8 +35,7 @@
 - Keep action-specific controls compact below the keymap without stretching
   into sparse ultrawide rows.
 
-The items above are implemented on the Milestone 4 branch and await physical
-KDE/Wayland visual acceptance.
+The items above were physically accepted on KDE/Wayland in Milestone 4.
 
 The physical keymap is anchored above a same-width, vertically scrollable key
 editor; the keymap itself never scrolls. Selecting an action-library item drives
