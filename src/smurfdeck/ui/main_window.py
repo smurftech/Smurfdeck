@@ -24,8 +24,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from smurfdeck.actions.engine import ActionEngine
+from smurfdeck.actions.shortcuts import (
+    MEDIA_ACTIONS,
+    media_key,
+    parse_shortcut,
+    supported_key_codes,
+)
 from smurfdeck.devices.base import DeckKeyEvent
 from smurfdeck.devices.streamdeck import StreamDeckDevice
+from smurfdeck.input.uinput import LazyUInputEmitter
 from smurfdeck.models.config import AppConfig, KeyConfig, PageConfig, ProfileConfig
 from smurfdeck.persistence.config_store import ConfigStore
 
@@ -58,6 +66,7 @@ class MainWindow(QMainWindow):
         self._key_buttons: list[QToolButton] = []
         self._events = HardwareEvents(self)
         self._events.key_changed.connect(self._on_key_event)
+        self._action_engine = ActionEngine(LazyUInputEmitter(supported_key_codes()))
 
         self._profile_combo, self._page_combo = QComboBox(), QComboBox()
         self._device_status = QLabel("No device connected")
@@ -83,13 +92,22 @@ class MainWindow(QMainWindow):
         self._action_combo = QComboBox()
         for action_type, action_label in ACTION_LABELS.items():
             self._action_combo.addItem(action_label, action_type)
+        self._action_combo.currentIndexChanged.connect(self._update_action_editor)
         self._value_edit = QLineEdit()
-        self._value_edit.setPlaceholderText("Action value (configured in Milestone 3)")
+        self._value_edit.setPlaceholderText("Action value")
+        self._media_combo = QComboBox()
+        for media_id, (media_label, _code) in MEDIA_ACTIONS.items():
+            self._media_combo.addItem(media_label, media_id)
+        self._trigger_combo = QComboBox()
+        self._trigger_combo.addItem("On key press", "press")
+        self._trigger_combo.addItem("On key release", "release")
+        self._trigger_combo.addItem("On press and release", "both")
         self._apply_key_button = QPushButton("Apply to key")
         self._apply_key_button.clicked.connect(self._apply_key_edits)
 
         self._inspector_key, self._inspector_action = QLabel(), QLabel()
         self._inspector_value, self._inspector_position = QLabel(), QLabel()
+        self._action_status = QLabel("Ready")
         self._recovery_notice = QLabel()
         self._recovery_notice.setWordWrap(True)
         self._recovery_notice.setObjectName("warningText")
@@ -139,7 +157,7 @@ class MainWindow(QMainWindow):
         search.textChanged.connect(self._filter_actions)
         left_layout.addWidget(search)
         left_layout.addWidget(self._action_list, 1)
-        help_text = QLabel("Double-click an action to assign it to the selected key.")
+        help_text = QLabel("Double-click an action, configure it, then select Apply to key.")
         help_text.setWordWrap(True)
         help_text.setObjectName("mutedText")
         left_layout.addWidget(help_text)
@@ -164,7 +182,9 @@ class MainWindow(QMainWindow):
         fields = QHBoxLayout()
         fields.addWidget(self._label_edit, 2)
         fields.addWidget(self._action_combo, 2)
+        fields.addWidget(self._trigger_combo, 2)
         fields.addWidget(self._value_edit, 3)
+        fields.addWidget(self._media_combo, 3)
         fields.addWidget(self._apply_key_button)
         quick_layout.addLayout(fields)
         canvas_layout.addWidget(quick)
@@ -183,6 +203,7 @@ class MainWindow(QMainWindow):
             ("ACTION", self._inspector_action),
             ("VALUE", self._inspector_value),
             ("POSITION", self._inspector_position),
+            ("LAST ACTION", self._action_status),
         ):
             right_layout.addWidget(self._caption(caption))
             value.setWordWrap(True)
@@ -315,6 +336,9 @@ class MainWindow(QMainWindow):
         self._label_edit.setText(key.label)
         self._action_combo.setCurrentIndex(max(self._action_combo.findData(key.action_type), 0))
         self._value_edit.setText(key.action_value)
+        self._media_combo.setCurrentIndex(max(self._media_combo.findData(key.action_value), 0))
+        self._trigger_combo.setCurrentIndex(max(self._trigger_combo.findData(key.trigger), 0))
+        self._update_action_editor()
         self._inspector_key.setText(key.label or f"Key {index + 1}")
         self._inspector_action.setText(ACTION_LABELS.get(key.action_type, key.action_type))
         self._inspector_value.setText(key.action_value or "Not configured")
@@ -323,10 +347,25 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _apply_key_edits(self) -> None:
+        action_type = str(self._action_combo.currentData())
+        action_value = (
+            str(self._media_combo.currentData())
+            if action_type == "media"
+            else self._value_edit.text().strip()
+        )
+        try:
+            if action_type == "keyboard":
+                parse_shortcut(action_value)
+            elif action_type == "media":
+                media_key(action_value)
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid action", str(error))
+            return
         key = self._active_page().key(self._selected_key)
         key.label = self._label_edit.text().strip()
-        key.action_type = str(self._action_combo.currentData())
-        key.action_value = self._value_edit.text().strip()
+        key.action_type = action_type
+        key.action_value = action_value
+        key.trigger = str(self._trigger_combo.currentData())
         self._save()
         self._refresh_canvas()
 
@@ -334,7 +373,18 @@ class MainWindow(QMainWindow):
         self._action_combo.setCurrentIndex(
             self._action_combo.findData(item.data(Qt.ItemDataRole.UserRole))
         )
-        self._apply_key_edits()
+        self._value_edit.setFocus()
+
+    def _update_action_editor(self, _index: int | None = None) -> None:
+        action_type = str(self._action_combo.currentData())
+        self._media_combo.setVisible(action_type == "media")
+        self._value_edit.setVisible(action_type != "media")
+        if action_type == "keyboard":
+            self._value_edit.setPlaceholderText("Example: Ctrl+Shift+S")
+        elif action_type not in {"none", "media"}:
+            self._value_edit.setPlaceholderText("Available in a later Milestone 3 slice")
+        else:
+            self._value_edit.setPlaceholderText("No value required")
 
     def _on_profile_selected(self, index: int) -> None:
         if index >= 0:
@@ -477,6 +527,11 @@ class MainWindow(QMainWindow):
             button.style().polish(button)
             if event.pressed:
                 self._select_key(event.key)
+            key = self._active_page().keys.get(event.key, KeyConfig())
+            result = self._action_engine.handle_key(event.key, key, event.pressed)
+            if result.executed:
+                prefix = "✓" if result.success else "⚠"
+                self._action_status.setText(f"{prefix} {result.message}")
 
     def _show_detection_error(self, error: Exception) -> None:
         self._device_status.setText("Device error")
@@ -551,4 +606,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         self._save()
         self._disconnect_device()
+        with suppress(OSError):
+            self._action_engine.close()
         super().closeEvent(event)

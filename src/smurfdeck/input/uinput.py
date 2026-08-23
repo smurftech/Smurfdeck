@@ -49,3 +49,20 @@ class UInputEmitter:
     def __exit__(self, *_exc_info: object) -> None:
         self.close()
 
+
+class LazyUInputEmitter:
+    """Open /dev/uinput only when the first configured action executes."""
+
+    def __init__(self, supported_keys: Iterable[int]) -> None:
+        self._supported_keys = frozenset(supported_keys)
+        self._emitter: UInputEmitter | None = None
+
+    def send_chord(self, keys: Sequence[int]) -> None:
+        if self._emitter is None:
+            self._emitter = UInputEmitter(self._supported_keys)
+        self._emitter.send_chord(keys)
+
+    def close(self) -> None:
+        if self._emitter is not None:
+            self._emitter.close()
+            self._emitter = None

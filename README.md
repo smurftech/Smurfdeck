@@ -33,9 +33,8 @@ the rules, and reconnect the device. Do not run the desktop application as root.
 The hardware library also needs a HIDAPI backend; on CachyOS install the
 `hidapi` package if discovery reports that no functional backend was found.
 
-Keyboard/media output is intentionally not connected to actions in this first
-milestone. That layer will use `evdev.UInput`; `/dev/uinput` access should also
-be granted with a narrowly scoped system rule rather than root execution.
+Keyboard and media actions use `evdev.UInput`; `/dev/uinput` access should be
+granted with a narrowly scoped system rule rather than root execution.
 The `evdev-binary` distribution supplies the standard `evdev` Python package
 without requiring kernel headers during installation.
 
@@ -64,8 +63,20 @@ write cannot corrupt the active file. If the file is invalid or uses an unknown
 schema, SmurfDeck preserves a timestamped copy and starts with safe defaults.
 
 The editor protects the final profile and the final page in each profile from
-deletion. Full action execution is the next milestone; Milestone 2 stores action
-type and value drafts without executing them.
+deletion. Configuration schema 2 adds action triggers while transparently
+migrating schema 1 files created by Milestone 2.
+
+## Input actions
+
+Keyboard shortcuts accept readable combinations such as `Ctrl+S`,
+`Ctrl+Shift+S`, `Alt+F4`, or `Meta+Left`. Supported modifiers are Ctrl, Shift,
+Alt, and Meta/Super; letters, digits, F1–F12, navigation keys, Enter, Space,
+Tab, Escape, Backspace, Delete, and common punctuation are supported.
+
+Media actions provide fixed choices for play/pause, previous track, next track,
+volume up, volume down, and mute. Every input action can execute on key press,
+key release, or both. SmurfDeck opens `/dev/uinput` lazily when the first action
+runs, and reports execution or permission errors in the selected-key inspector.
 
 ## Git workflow
 

@@ -15,6 +15,8 @@ PySide6 UI
     │                                  └── Pillow/PILHelper key rendering
     │
     └── InputEmitter protocol ── UInputEmitter ── evdev.UInput
+             ▲
+             └── ActionEngine ── shortcut/media validation + trigger policy
 ```
 
 The Stream Deck library invokes key callbacks from its reader thread. The
@@ -32,10 +34,14 @@ schema-versioned JSON with `fsync` followed by atomic replacement. Invalid input
 is copied aside before defaults are loaded, so recovery never destroys the
 original evidence.
 
+`ActionEngine` receives normalized key state changes after Qt has moved the
+hardware callback onto the UI thread. It suppresses duplicate states, applies
+the configured press/release policy, validates the typed action value, and then
+emits Linux input codes. `LazyUInputEmitter` does not open `/dev/uinput` until a
+configured keyboard or media action actually executes.
+
 ## Next milestones
 
-1. Add executable action definitions and key press/release policies.
-2. Connect keyboard/media actions to `UInputEmitter`.
-3. Add launch, open-path, command, and page-navigation actions.
-4. Add icon composition, drag/drop, brightness, and tray behavior.
-5. Add hot-plug monitoring and multi-device selection.
+1. Add launch, open-path, command, and page-navigation actions.
+2. Add icon composition, drag/drop, brightness, and tray behavior.
+3. Add hot-plug monitoring and multi-device selection.

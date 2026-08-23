@@ -1,7 +1,8 @@
 import pytest
 from evdev import ecodes
 
-from smurfdeck.input.uinput import UInputEmitter
+import smurfdeck.input.uinput as uinput_module
+from smurfdeck.input.uinput import LazyUInputEmitter, UInputEmitter
 
 
 class FakeInput:
@@ -38,3 +39,25 @@ def test_chord_rejects_unadvertised_key() -> None:
     with pytest.raises(ValueError, match="Unsupported"):
         emitter.send_chord([ecodes.KEY_A])
 
+
+def test_lazy_emitter_opens_device_only_on_first_action(monkeypatch) -> None:
+    created: list[FakeInput] = []
+
+    class FakeUInputEmitter:
+        def __init__(self, _supported_keys: object) -> None:
+            self.device = FakeInput()
+            created.append(self.device)
+
+        def send_chord(self, keys: object) -> None:
+            self.device.events.append(str(keys))
+
+        def close(self) -> None:
+            self.device.close()
+
+    monkeypatch.setattr(uinput_module, "UInputEmitter", FakeUInputEmitter)
+    emitter = LazyUInputEmitter([ecodes.KEY_MUTE])
+    assert not created
+    emitter.send_chord([ecodes.KEY_MUTE])
+    assert len(created) == 1
+    emitter.close()
+    assert created[0].closed

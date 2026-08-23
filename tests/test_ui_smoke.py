@@ -4,7 +4,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from smurfdeck.devices.base import DeckGeometry, DeckInfo
+from smurfdeck.actions.engine import ActionEngine
+from smurfdeck.devices.base import DeckGeometry, DeckInfo, DeckKeyEvent
+from smurfdeck.models.config import KeyConfig
 from smurfdeck.persistence.config_store import ConfigStore
 from smurfdeck.ui.main_window import MainWindow
 
@@ -16,6 +18,17 @@ class FakeDevice:
 
     def render_key_label(self, index: int, label: str) -> None:
         self.labels[index] = label
+
+
+class FakeEmitter:
+    def __init__(self) -> None:
+        self.chords: list[tuple[int, ...]] = []
+
+    def send_chord(self, keys: tuple[int, ...]) -> None:
+        self.chords.append(keys)
+
+    def close(self) -> None:
+        pass
 
 
 def test_balanced_window_starts_with_persisted_configuration(tmp_path) -> None:
@@ -39,5 +52,21 @@ def test_active_page_is_rendered_to_connected_device(tmp_path) -> None:
     window._refresh_page_combo()
     assert device.labels[0] == "Play"
     assert device.labels[14] == "15"
+    window.close()
+    app.processEvents()
+
+
+def test_hardware_event_dispatches_configured_action(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    emitter = FakeEmitter()
+    window._action_engine = ActionEngine(emitter)
+    window.config.active_profile.active_page.keys[0] = KeyConfig(
+        action_type="keyboard", action_value="Ctrl+S"
+    )
+    window._on_key_event(DeckKeyEvent(0, True))
+    window._on_key_event(DeckKeyEvent(0, False))
+    assert len(emitter.chords) == 1
+    assert window._action_status.text() == "✓ Action sent"
     window.close()
     app.processEvents()

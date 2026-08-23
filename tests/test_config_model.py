@@ -36,3 +36,15 @@ def test_round_trip_preserves_active_profile_page_and_key() -> None:
     assert restored.active_profile.active_page.name == "Commands"
     assert restored.active_profile.active_page.key(4).label == "Tests"
 
+
+def test_version_one_configuration_migrates_with_press_trigger() -> None:
+    config = AppConfig()
+    legacy_key = config.active_profile.active_page.key(0)
+    legacy_key.action_type = "keyboard"
+    legacy_key.action_value = "Ctrl+S"
+    legacy = config.to_dict()
+    legacy["schema_version"] = 1
+    legacy["profiles"][0]["pages"][0]["keys"]["0"].pop("trigger")
+    restored = AppConfig.from_dict(legacy)
+    assert restored.schema_version == 2
+    assert restored.active_profile.active_page.key(0).trigger == "press"
