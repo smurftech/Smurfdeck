@@ -8,6 +8,8 @@ class FakeDeck:
 
     def __init__(self) -> None:
         self.images = {}
+        self.closed = False
+        self.reset_error: Exception | None = None
 
     def key_layout(self) -> tuple[int, int]:
         return (5, 3)
@@ -28,10 +30,11 @@ class FakeDeck:
         self.callback = callback
 
     def reset(self) -> None:
-        pass
+        if self.reset_error is not None:
+            raise self.reset_error
 
     def close(self) -> None:
-        pass
+        self.closed = True
 
 
 def test_adapter_reports_device_information() -> None:
@@ -51,3 +54,9 @@ def test_adapter_translates_callback_to_event() -> None:
     deck.callback(deck, 2, False)
     assert events == [DeckKeyEvent(2, True), DeckKeyEvent(2, False)]
 
+
+def test_close_releases_device_when_optional_reset_fails() -> None:
+    deck = FakeDeck()
+    deck.reset_error = OSError("feature report failed")
+    StreamDeckDevice(deck).close()
+    assert deck.closed

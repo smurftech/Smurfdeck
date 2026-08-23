@@ -30,7 +30,6 @@ class StreamDeckDevice:
         for deck in DeviceManager().enumerate():
             try:
                 deck.open()
-                deck.reset()
                 devices.append(cls(deck))
             except (OSError, TransportError) as error:
                 LOGGER.warning("Could not open Stream Deck: %s", error)
@@ -78,6 +77,9 @@ class StreamDeckDevice:
     def close(self) -> None:
         with self._lock:
             self._sink = None
-        self._deck.set_key_callback(None)
-        self._deck.reset()
-        self._deck.close()
+        try:
+            self._deck.set_key_callback(None)
+            with suppress(OSError, TransportError):
+                self._deck.reset()
+        finally:
+            self._deck.close()
