@@ -10,7 +10,7 @@ from StreamDeck.DeviceManager import DeviceManager
 from StreamDeck.Transport.Transport import TransportError
 
 from smurfdeck.devices.base import DeckEventSink, DeckGeometry, DeckInfo, DeckKeyEvent
-from smurfdeck.rendering.keys import numbered_key_image
+from smurfdeck.rendering.keys import labeled_key_image, numbered_key_image
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,10 +71,13 @@ class StreamDeckDevice:
         image = numbered_key_image(self._deck, number)
         self._deck.set_key_image(key, image)
 
+    def render_key_label(self, key: int, label: str) -> None:
+        image = labeled_key_image(self._deck, label)
+        self._deck.set_key_image(key, image)
+
     def close(self) -> None:
         with self._lock:
             self._sink = None
         self._deck.set_key_callback(None)
         self._deck.reset()
         self._deck.close()
-

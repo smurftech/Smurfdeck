@@ -5,9 +5,10 @@ KDE Plasma, and Wayland. It is written in Python with PySide6 and keeps hardware
 rendering, input, and UI concerns separate so it can grow without becoming tied
 to one device model.
 
-The first milestone discovers a connected Stream Deck, shows its model and key
-geometry, draws numbered test cards on every key, and reports key-down/key-up
-events in the desktop UI.
+SmurfDeck discovers a connected Stream Deck, presents the Balanced three-pane
+editor, manages profiles and pages, assigns draft actions and labels to keys,
+updates the physical device when pages change, and reports key-down/key-up state
+in the desktop UI.
 
 ## Setup
 
@@ -53,6 +54,18 @@ tests/                   dependency-light unit tests
 
 See [`docs/architecture.md`](docs/architecture.md) for component boundaries and
 the next milestones.
+
+## Configuration
+
+Profiles, pages, active selections, and key drafts are saved automatically to
+`$XDG_CONFIG_HOME/smurfdeck/config.json` (normally
+`~/.config/smurfdeck/config.json`). Saves use an atomic replacement so a partial
+write cannot corrupt the active file. If the file is invalid or uses an unknown
+schema, SmurfDeck preserves a timestamped copy and starts with safe defaults.
+
+The editor protects the final profile and the final page in each profile from
+deletion. Full action execution is the next milestone; Milestone 2 stores action
+type and value drafts without executing them.
 
 ## Git workflow
 
