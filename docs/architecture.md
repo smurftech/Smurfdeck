@@ -43,5 +43,9 @@ configured keyboard or media action actually executes.
 ## Next milestones
 
 1. Add launch, open-path, command, and page-navigation actions.
-2. Add icon composition, drag/drop, brightness, and tray behavior.
-3. Add hot-plug monitoring and multi-device selection.
+2. Complete the responsive visual-fidelity pass for the approved Balanced UI.
+3. Add icon composition, drag/drop, brightness, and tray behavior.
+4. Add hot-plug monitoring and multi-device selection.
+
+The maintained backlog and acceptance status live in
+[`roadmap.md`](roadmap.md).

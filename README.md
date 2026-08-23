@@ -52,7 +52,8 @@ tests/                   dependency-light unit tests
 ```
 
 See [`docs/architecture.md`](docs/architecture.md) for component boundaries and
-the next milestones.
+[`docs/roadmap.md`](docs/roadmap.md) for the accepted feature backlog, including
+the planned Balanced-interface fidelity pass.
 
 ## Configuration
 
