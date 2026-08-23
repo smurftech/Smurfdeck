@@ -39,7 +39,8 @@ class StreamDeckDevice:
 
     @property
     def info(self) -> DeckInfo:
-        columns, rows = self._deck.key_layout()
+        # python-elgato-streamdeck exposes layouts as (rows, columns).
+        rows, columns = self._deck.key_layout()
         key_width, key_height = self._deck.key_image_format()["size"]
         return DeckInfo(
             model=self._deck.deck_type(),

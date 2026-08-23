@@ -12,7 +12,8 @@ class FakeDeck:
         self.reset_error: Exception | None = None
 
     def key_layout(self) -> tuple[int, int]:
-        return (5, 3)
+        # Upstream API order is (rows, columns).
+        return (3, 5)
 
     def key_image_format(self) -> dict[str, object]:
         return {"size": (72, 72)}
@@ -40,6 +41,8 @@ class FakeDeck:
 def test_adapter_reports_device_information() -> None:
     device = StreamDeckDevice(FakeDeck())
     assert device.info.model == "Fake Deck"
+    assert device.info.geometry.columns == 5
+    assert device.info.geometry.rows == 3
     assert device.info.geometry.key_count == 15
     assert device.info.serial == "TEST-123"
 
