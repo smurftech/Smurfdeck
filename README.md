@@ -6,7 +6,7 @@ rendering, input, and UI concerns separate so it can grow without becoming tied
 to one device model.
 
 SmurfDeck discovers a connected Stream Deck, presents the Balanced three-pane
-editor, manages profiles and pages, assigns draft actions and labels to keys,
+editor, manages profiles and pages, assigns actions and labels to keys,
 updates the physical device when pages change, and reports key-down/key-up state
 in the desktop UI.
 
@@ -48,6 +48,7 @@ src/smurfdeck/
   rendering/keys.py      Pillow key artwork
   ui/main_window.py      initial PySide6 desktop shell
   input/uinput.py        Wayland-safe input emitter
+  actions/desktop.py     safe desktop and asynchronous command runner
 tests/                   dependency-light unit tests
 ```
 
@@ -64,8 +65,8 @@ write cannot corrupt the active file. If the file is invalid or uses an unknown
 schema, SmurfDeck preserves a timestamped copy and starts with safe defaults.
 
 The editor protects the final profile and the final page in each profile from
-deletion. Configuration schema 2 adds action triggers while transparently
-migrating schema 1 files created by Milestone 2.
+deletion. Configuration schema 3 adds command working directories while
+transparently migrating schema 1 and 2 files.
 
 ## Input actions
 
@@ -78,6 +79,24 @@ Media actions provide fixed choices for play/pause, previous track, next track,
 volume up, volume down, and mute. Every input action can execute on key press,
 key release, or both. SmurfDeck opens `/dev/uinput` lazily when the first action
 runs, and reports execution or permission errors in the selected-key inspector.
+
+## Desktop and navigation actions
+
+Application actions accept a program plus optional arguments. Open actions send
+an existing file/folder or an `http`, `https`, `mailto`, or `file` URL to KDE's
+default application. Command actions require an explicit working folder, run in
+the background with a 60-second limit, and report running, completed, exit-code,
+or timeout status without freezing the editor.
+
+Commands and application launches are parsed as argument lists and never passed
+through a command shell. Shell operators such as pipes, redirects, variable
+expansion, and command substitution therefore do not run implicitly. Put
+multi-step behavior in a reviewed script and configure SmurfDeck to launch that
+script directly.
+
+Page actions can move to the next or previous page (wrapping at either end), or
+jump to a named page in the current profile. The desktop canvas and connected
+Stream Deck are refreshed together.
 
 ## Git workflow
 

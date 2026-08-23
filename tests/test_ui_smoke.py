@@ -70,3 +70,21 @@ def test_hardware_event_dispatches_configured_action(tmp_path) -> None:
     assert window._action_status.text() == "✓ Action sent"
     window.close()
     app.processEvents()
+
+
+def test_page_action_wraps_and_renders_the_destination(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    device = FakeDevice()
+    window._device = device
+    first = window.config.active_profile.active_page
+    first.key(0).label = "Next"
+    second = window.config.active_profile.add_page("Media")
+    second.key(0).label = "Play"
+    window._refresh_page_combo()
+    assert window._navigate_page("next") == "Switched to Page 1"
+    assert device.labels[0] == "Next"
+    assert window._navigate_page("previous") == "Switched to Media"
+    assert device.labels[0] == "Play"
+    window.close()
+    app.processEvents()

@@ -1,6 +1,6 @@
 from evdev import ecodes
 
-from smurfdeck.actions.engine import ActionEngine
+from smurfdeck.actions.engine import ActionEngine, ActionResult
 from smurfdeck.models.config import KeyConfig
 
 
@@ -14,6 +14,29 @@ class FakeEmitter:
         if self.error is not None:
             raise self.error
         self.chords.append(keys)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeDesktop:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+        self.callback = None
+        self.closed = False
+
+    def launch(self, value: str) -> ActionResult:
+        self.calls.append(("launch", value))
+        return ActionResult(True, True, "Launched")
+
+    def open_target(self, value: str) -> ActionResult:
+        self.calls.append(("open", value))
+        return ActionResult(True, True, "Opened")
+
+    def run_command(self, value, working_directory, callback) -> ActionResult:
+        self.calls.append(("command", value, working_directory))
+        self.callback = callback
+        return ActionResult(True, True, "Command running…")
 
     def close(self) -> None:
         self.closed = True
@@ -56,3 +79,41 @@ def test_uinput_error_is_returned_without_crashing() -> None:
     assert result.executed and not result.success
     assert "permission denied" in result.message
 
+
+def test_desktop_and_page_actions_are_dispatched() -> None:
+    desktop = FakeDesktop()
+    navigated: list[str] = []
+    feedback: list[tuple[int, ActionResult]] = []
+    engine = ActionEngine(
+        FakeEmitter(),
+        desktop,
+        lambda destination: navigated.append(destination) or "Switched page",
+        lambda key, result: feedback.append((key, result)),
+    )
+    launch = KeyConfig(action_type="launch", action_value="firefox")
+    assert engine.handle_key(0, launch, True).success
+    engine.handle_key(0, KeyConfig(), False)
+    open_url = KeyConfig(action_type="open", action_value="https://example.com")
+    assert engine.handle_key(1, open_url, True).success
+    engine.handle_key(1, KeyConfig(), False)
+    command = KeyConfig(
+        action_type="command", action_value="echo hello", working_directory="/tmp"
+    )
+    assert "running" in engine.handle_key(2, command, True).message
+    desktop.callback(ActionResult(True, True, "Command completed"))
+    engine.handle_key(2, KeyConfig(), False)
+    assert engine.handle_key(3, KeyConfig(action_type="page", action_value="next"), True).success
+    assert desktop.calls == [
+        ("launch", "firefox"),
+        ("open", "https://example.com"),
+        ("command", "echo hello", "/tmp"),
+    ]
+    assert navigated == ["next"]
+    assert feedback[0][0] == 2
+
+
+def test_close_releases_both_action_services() -> None:
+    emitter, desktop = FakeEmitter(), FakeDesktop()
+    engine = ActionEngine(emitter, desktop)
+    engine.close()
+    assert emitter.closed and desktop.closed

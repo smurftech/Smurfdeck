@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DEFAULT_KEY_COUNT = 15
 
 
@@ -18,6 +18,7 @@ class KeyConfig:
     action_type: str = "none"
     action_value: str = ""
     trigger: str = "press"
+    working_directory: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -25,6 +26,7 @@ class KeyConfig:
             "action_type": self.action_type,
             "action_value": self.action_value,
             "trigger": self.trigger,
+            "working_directory": self.working_directory,
         }
 
     @classmethod
@@ -39,6 +41,7 @@ class KeyConfig:
             action_type=str(data.get("action_type", "none")),
             action_value=str(data.get("action_value", "")),
             trigger=trigger,
+            working_directory=str(data.get("working_directory", "")),
         )
 
 
@@ -211,7 +214,7 @@ class AppConfig:
         if not isinstance(data, dict):
             raise ValueError("Configuration root must be an object")
         version = data.get("schema_version")
-        if version not in (1, SCHEMA_VERSION):
+        if version not in (1, 2, SCHEMA_VERSION):
             raise ValueError(f"Unsupported configuration schema version: {version!r}")
         raw_profiles = data.get("profiles", [])
         if not isinstance(raw_profiles, list) or not raw_profiles:

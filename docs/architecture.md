@@ -14,9 +14,9 @@ PySide6 UI
     │                                  │
     │                                  └── Pillow/PILHelper key rendering
     │
-    └── InputEmitter protocol ── UInputEmitter ── evdev.UInput
-             ▲
-             └── ActionEngine ── shortcut/media validation + trigger policy
+    └── ActionEngine ─┬─ InputEmitter ── UInputEmitter ── evdev.UInput
+                     ├─ DesktopActionRunner ── safe subprocess/xdg-open
+                     └─ page navigator ── persisted UI + device refresh
 ```
 
 The Stream Deck library invokes key callbacks from its reader thread. The
@@ -40,12 +40,16 @@ the configured press/release policy, validates the typed action value, and then
 emits Linux input codes. `LazyUInputEmitter` does not open `/dev/uinput` until a
 configured keyboard or media action actually executes.
 
+Desktop processes are launched without a shell. Short commands run in a bounded
+worker pool, use an explicit validated working directory, and return completion
+feedback to the Qt thread through a signal. Applications and desktop-open
+requests detach immediately so SmurfDeck never waits for their windows to close.
+
 ## Next milestones
 
-1. Add launch, open-path, command, and page-navigation actions.
-2. Complete the responsive visual-fidelity pass for the approved Balanced UI.
-3. Add icon composition, drag/drop, brightness, and tray behavior.
-4. Add hot-plug monitoring and multi-device selection.
+1. Complete the responsive visual-fidelity pass for the approved Balanced UI.
+2. Add icon composition, drag/drop, brightness, and tray behavior.
+3. Add hot-plug monitoring and multi-device selection.
 
 The maintained backlog and acceptance status live in
 [`roadmap.md`](roadmap.md).

@@ -8,14 +8,17 @@
 - Keyboard shortcuts with press/release trigger policies.
 - Media controls for playback, track navigation, volume, and mute.
 - Wayland-safe event injection through lazy UInput access.
-
-## Next action features
-
 - Launch applications.
 - Open files, folders, and URLs.
 - Run commands with explicit working directories and safe process handling.
 - Navigate to the next, previous, or a specific page from a key.
-- Show richer running, success, and failure feedback on keys.
+- Show running, success, exit-code, and timeout feedback in the inspector.
+
+## Next action refinements
+
+- Show richer running, success, and failure feedback directly on physical and
+  on-screen keys.
+- Add configurable command timeouts and optional environment variables.
 
 ## Editor and visual fidelity
 
@@ -42,4 +45,3 @@
 - Brightness control and restoration.
 - Multi-device selection.
 - Optional application-aware profile switching.
-

@@ -46,5 +46,6 @@ def test_version_one_configuration_migrates_with_press_trigger() -> None:
     legacy["schema_version"] = 1
     legacy["profiles"][0]["pages"][0]["keys"]["0"].pop("trigger")
     restored = AppConfig.from_dict(legacy)
-    assert restored.schema_version == 2
+    assert restored.schema_version == 3
+    assert restored.active_profile.active_page.key(0).working_directory == ""
     assert restored.active_profile.active_page.key(0).trigger == "press"

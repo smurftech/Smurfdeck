@@ -9,8 +9,11 @@ def test_store_saves_and_loads_configuration_atomically(tmp_path) -> None:
     store = ConfigStore(path)
     config = AppConfig()
     config.active_profile.active_page.key(0).label = "Terminal"
+    config.active_profile.active_page.key(0).working_directory = "/tmp"
     store.save(config)
-    assert store.load().active_profile.active_page.key(0).label == "Terminal"
+    restored = store.load().active_profile.active_page.key(0)
+    assert restored.label == "Terminal"
+    assert restored.working_directory == "/tmp"
     assert not list(path.parent.glob("*.tmp"))
 
 
@@ -28,5 +31,5 @@ def test_unknown_schema_is_recovered_safely(tmp_path) -> None:
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"schema_version": 99}), encoding="utf-8")
     store = ConfigStore(path)
-    assert store.load().schema_version == 2
+    assert store.load().schema_version == 3
     assert store.recovery_path is not None

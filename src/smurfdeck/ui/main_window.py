@@ -24,6 +24,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from smurfdeck.actions.desktop import (
+    DesktopActionRunner,
+    parse_command,
+    validate_open_target,
+    validate_working_directory,
+)
 from smurfdeck.actions.engine import ActionEngine
 from smurfdeck.actions.shortcuts import (
     MEDIA_ACTIONS,
@@ -50,6 +56,7 @@ ACTION_LABELS = {
 
 class HardwareEvents(QObject):
     key_changed = Signal(object)
+    action_finished = Signal(int, object)
 
 
 class MainWindow(QMainWindow):
@@ -66,7 +73,13 @@ class MainWindow(QMainWindow):
         self._key_buttons: list[QToolButton] = []
         self._events = HardwareEvents(self)
         self._events.key_changed.connect(self._on_key_event)
-        self._action_engine = ActionEngine(LazyUInputEmitter(supported_key_codes()))
+        self._events.action_finished.connect(self._on_action_finished)
+        self._action_engine = ActionEngine(
+            LazyUInputEmitter(supported_key_codes()),
+            DesktopActionRunner(),
+            self._navigate_page,
+            self._events.action_finished.emit,
+        )
 
         self._profile_combo, self._page_combo = QComboBox(), QComboBox()
         self._device_status = QLabel("No device connected")
@@ -98,6 +111,9 @@ class MainWindow(QMainWindow):
         self._media_combo = QComboBox()
         for media_id, (media_label, _code) in MEDIA_ACTIONS.items():
             self._media_combo.addItem(media_label, media_id)
+        self._page_action_combo = QComboBox()
+        self._working_directory_edit = QLineEdit()
+        self._working_directory_edit.setPlaceholderText("Working folder (required)")
         self._trigger_combo = QComboBox()
         self._trigger_combo.addItem("On key press", "press")
         self._trigger_combo.addItem("On key release", "release")
@@ -185,6 +201,8 @@ class MainWindow(QMainWindow):
         fields.addWidget(self._trigger_combo, 2)
         fields.addWidget(self._value_edit, 3)
         fields.addWidget(self._media_combo, 3)
+        fields.addWidget(self._page_action_combo, 3)
+        fields.addWidget(self._working_directory_edit, 3)
         fields.addWidget(self._apply_key_button)
         quick_layout.addLayout(fields)
         canvas_layout.addWidget(quick)
@@ -294,7 +312,19 @@ class MainWindow(QMainWindow):
             self._page_combo.setCurrentIndex(
                 max(self._page_combo.findData(profile.active_page_id), 0)
             )
+        self._refresh_page_action_combo()
         self._refresh_canvas()
+
+    def _refresh_page_action_combo(self) -> None:
+        current = self._page_action_combo.currentData()
+        with QSignalBlocker(self._page_action_combo):
+            self._page_action_combo.clear()
+            self._page_action_combo.addItem("Next page", "next")
+            self._page_action_combo.addItem("Previous page", "previous")
+            for page in self._active_profile().pages:
+                self._page_action_combo.addItem(f"Go to {page.name}", f"page:{page.id}")
+            index = self._page_action_combo.findData(current)
+            self._page_action_combo.setCurrentIndex(max(index, 0))
 
     def _refresh_canvas(self) -> None:
         profile, page = self._active_profile(), self._active_page()
@@ -337,6 +367,10 @@ class MainWindow(QMainWindow):
         self._action_combo.setCurrentIndex(max(self._action_combo.findData(key.action_type), 0))
         self._value_edit.setText(key.action_value)
         self._media_combo.setCurrentIndex(max(self._media_combo.findData(key.action_value), 0))
+        self._page_action_combo.setCurrentIndex(
+            max(self._page_action_combo.findData(key.action_value), 0)
+        )
+        self._working_directory_edit.setText(key.working_directory)
         self._trigger_combo.setCurrentIndex(max(self._trigger_combo.findData(key.trigger), 0))
         self._update_action_editor()
         self._inspector_key.setText(key.label or f"Key {index + 1}")
@@ -351,13 +385,25 @@ class MainWindow(QMainWindow):
         action_value = (
             str(self._media_combo.currentData())
             if action_type == "media"
+            else str(self._page_action_combo.currentData())
+            if action_type == "page"
             else self._value_edit.text().strip()
         )
+        working_directory = self._working_directory_edit.text().strip()
         try:
             if action_type == "keyboard":
                 parse_shortcut(action_value)
             elif action_type == "media":
                 media_key(action_value)
+            elif action_type == "launch":
+                parse_command(action_value)
+            elif action_type == "open":
+                validate_open_target(action_value)
+            elif action_type == "command":
+                parse_command(action_value)
+                working_directory = validate_working_directory(working_directory)
+            elif action_type == "page" and not action_value:
+                raise ValueError("Choose a page destination")
         except ValueError as error:
             QMessageBox.warning(self, "Invalid action", str(error))
             return
@@ -366,6 +412,7 @@ class MainWindow(QMainWindow):
         key.action_type = action_type
         key.action_value = action_value
         key.trigger = str(self._trigger_combo.currentData())
+        key.working_directory = working_directory if action_type == "command" else ""
         self._save()
         self._refresh_canvas()
 
@@ -378,11 +425,17 @@ class MainWindow(QMainWindow):
     def _update_action_editor(self, _index: int | None = None) -> None:
         action_type = str(self._action_combo.currentData())
         self._media_combo.setVisible(action_type == "media")
-        self._value_edit.setVisible(action_type != "media")
+        self._page_action_combo.setVisible(action_type == "page")
+        self._working_directory_edit.setVisible(action_type == "command")
+        self._value_edit.setVisible(action_type not in {"media", "page", "none"})
         if action_type == "keyboard":
             self._value_edit.setPlaceholderText("Example: Ctrl+Shift+S")
-        elif action_type not in {"none", "media"}:
-            self._value_edit.setPlaceholderText("Available in a later Milestone 3 slice")
+        elif action_type == "launch":
+            self._value_edit.setPlaceholderText("Example: firefox --private-window")
+        elif action_type == "open":
+            self._value_edit.setPlaceholderText("File, folder, or https:// address")
+        elif action_type == "command":
+            self._value_edit.setPlaceholderText("Command and arguments (no shell syntax)")
         else:
             self._value_edit.setPlaceholderText("No value required")
 
@@ -397,6 +450,27 @@ class MainWindow(QMainWindow):
             self._active_profile().active_page_id = str(self._page_combo.itemData(index))
             self._save()
             self._refresh_canvas()
+
+    def _navigate_page(self, destination: str) -> str:
+        profile = self._active_profile()
+        current = next(
+            index for index, page in enumerate(profile.pages) if page.id == profile.active_page_id
+        )
+        if destination == "next":
+            target = profile.pages[(current + 1) % len(profile.pages)]
+        elif destination == "previous":
+            target = profile.pages[(current - 1) % len(profile.pages)]
+        elif destination.startswith("page:"):
+            try:
+                target = profile.page_by_id(destination.removeprefix("page:"))
+            except KeyError as error:
+                raise ValueError("The configured page no longer exists") from error
+        else:
+            raise ValueError("Invalid page destination")
+        profile.active_page_id = target.id
+        self._save()
+        self._refresh_page_combo()
+        return f"Switched to {target.name}"
 
     def _ask_name(self, title: str, label: str, current: str = "") -> str | None:
         value, accepted = QInputDialog.getText(self, title, label, text=current)
@@ -532,6 +606,13 @@ class MainWindow(QMainWindow):
             if result.executed:
                 prefix = "✓" if result.success else "⚠"
                 self._action_status.setText(f"{prefix} {result.message}")
+
+    @Slot(int, object)
+    def _on_action_finished(self, key_index: int, result: object) -> None:
+        if not hasattr(result, "success") or not hasattr(result, "message"):
+            return
+        prefix = "✓" if result.success else "⚠"
+        self._action_status.setText(f"{prefix} Key {key_index + 1}: {result.message}")
 
     def _show_detection_error(self, error: Exception) -> None:
         self._device_status.setText("Device error")
