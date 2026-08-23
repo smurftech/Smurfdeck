@@ -12,7 +12,7 @@
 - Open files, folders, and URLs.
 - Run commands with explicit working directories and safe process handling.
 - Navigate to the next, previous, or a specific page from a key.
-- Show running, success, exit-code, and timeout feedback in the inspector.
+- Show running, success, exit-code, and timeout feedback in the status bar.
 
 ## Next action refinements
 
@@ -25,16 +25,15 @@
 - Bring the implementation into close visual alignment with the approved
   **Balanced** concept rather than treating the current functional shell as the
   finished interface.
-- Make the three-pane proportions responsive across normal, ultrawide, and
+- Make the two-pane proportions responsive across normal, ultrawide, and
   high-DPI KDE displays; avoid an undersized deck surrounded by unused space.
-- Establish deliberate minimum, preferred, and maximum widths for the action
-  library, central canvas, and inspector.
+- Establish deliberate widths for the action library and central canvas.
 - Scale the on-screen deck and keys with the available canvas while preserving
   the physical model's aspect ratio and geometry.
 - Refine top-bar hierarchy, spacing, typography, icons, button affordances, and
   selected/pressed/action-result states to match the approved mockup.
-- Improve the quick editor and inspector so action-specific controls appear
-  cleanly without stretching into sparse ultrawide rows.
+- Keep action-specific controls compact below the keymap without stretching
+  into sparse ultrawide rows.
 
 The items above are implemented on the Milestone 4 branch and await physical
 KDE/Wayland visual acceptance.
@@ -42,6 +41,9 @@ KDE/Wayland visual acceptance.
 The physical keymap is anchored above a same-width, vertically scrollable key
 editor; the keymap itself never scrolls. Selecting an action-library item drives
 that shared editor directly so future action types follow the same interaction.
+Profile and page selection use a compact two-level header; management operations
+and device detection live in its settings menu. The duplicate inspector pane was
+removed, with its useful runtime feedback retained in the status bar.
 
 ## Later editor enhancements
 

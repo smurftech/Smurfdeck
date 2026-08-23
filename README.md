@@ -5,14 +5,15 @@ KDE Plasma, and Wayland. It is written in Python with PySide6 and keeps hardware
 rendering, input, and UI concerns separate so it can grow without becoming tied
 to one device model.
 
-SmurfDeck discovers a connected Stream Deck, presents the Balanced three-pane
+SmurfDeck discovers a connected Stream Deck, presents the Balanced two-pane
 editor, manages profiles and pages, assigns actions and labels to keys,
 updates the physical device when pages change, and reports key-down/key-up state
 in the desktop UI.
 
-The editor keeps deliberate action-library and inspector widths while the
-central deck scales responsively across normal and ultrawide displays. Its key
-grid always preserves the connected device's physical rows and columns.
+The editor keeps a deliberate action-library width while the central deck scales
+responsively across normal and ultrawide displays. Its key grid always preserves
+the connected device's physical rows and columns. Key configuration lives below
+the deck, while runtime feedback appears in a compact status bar.
 
 ## Setup
 
@@ -82,7 +83,7 @@ Tab, Escape, Backspace, Delete, and common punctuation are supported.
 Media actions provide fixed choices for play/pause, previous track, next track,
 volume up, volume down, and mute. Every input action can execute on key press,
 key release, or both. SmurfDeck opens `/dev/uinput` lazily when the first action
-runs, and reports execution or permission errors in the selected-key inspector.
+runs, and reports execution or permission errors in the status bar.
 
 ## Desktop and navigation actions
 

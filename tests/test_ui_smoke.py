@@ -104,7 +104,7 @@ def test_balanced_canvas_preserves_five_by_three_layout_and_scales(tmp_path) -> 
     app.processEvents()
 
 
-def test_key_preview_and_command_editor_reflect_selected_action(tmp_path) -> None:
+def test_command_editor_reflects_selected_action(tmp_path) -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow(ConfigStore(tmp_path / "config.json"))
     window.config.active_profile.active_page.keys[0] = KeyConfig(
@@ -114,11 +114,22 @@ def test_key_preview_and_command_editor_reflect_selected_action(tmp_path) -> Non
         working_directory="/tmp",
     )
     window._refresh_canvas()
-    assert window._key_preview.text() == "Build"
     assert window._value_stack.currentWidget().layout() is not None
     assert window._command_edit.text() == "make test"
     assert window._working_directory_edit.text() == "/tmp"
     assert window._key_buttons[0].property("configured") is True
+    window.close()
+    app.processEvents()
+
+
+def test_simple_header_uses_settings_menu_and_no_duplicate_inspector(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    assert window._profile_combo.objectName() == "primarySelector"
+    assert window._page_combo.objectName() == "secondarySelector"
+    assert len(window._settings_menu.actions()) >= 10
+    assert not hasattr(window, "_inspector_key")
+    assert window._action_status.parentWidget() is window.statusBar()
     window.close()
     app.processEvents()
 

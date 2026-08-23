@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -147,11 +148,14 @@ class MainWindow(QMainWindow):
         )
 
         self._profile_combo, self._page_combo = QComboBox(), QComboBox()
-        self._profile_combo.setMaximumWidth(280)
-        self._page_combo.setMaximumWidth(280)
+        self._profile_combo.setObjectName("primarySelector")
+        self._page_combo.setObjectName("secondarySelector")
+        self._profile_combo.setMinimumWidth(170)
+        self._page_combo.setMinimumWidth(170)
+        self._profile_combo.setMaximumWidth(260)
+        self._page_combo.setMaximumWidth(260)
         self._device_status = QLabel("No device connected")
-        self._detect_button = QPushButton("Detect device")
-        self._detect_button.clicked.connect(self.detect_device)
+        self._device_status.setObjectName("deviceStatus")
         self._profile_combo.currentIndexChanged.connect(self._on_profile_selected)
         self._page_combo.currentIndexChanged.connect(self._on_page_selected)
 
@@ -160,11 +164,6 @@ class MainWindow(QMainWindow):
         self._action_list.itemClicked.connect(self._on_action_activated)
         self._deck_canvas = ResponsiveDeckCanvas()
         self._key_grid = self._deck_canvas.grid
-        self._canvas_title = QLabel()
-        self._canvas_title.setObjectName("canvasTitle")
-        self._canvas_hint = QLabel()
-        self._canvas_hint.setObjectName("mutedText")
-
         self._quick_title = QLabel("Key 1")
         self._quick_title.setObjectName("sectionTitle")
         self._label_edit = QLineEdit()
@@ -190,13 +189,9 @@ class MainWindow(QMainWindow):
         self._apply_key_button = QPushButton("Apply to key")
         self._apply_key_button.clicked.connect(self._apply_key_edits)
 
-        self._inspector_key, self._inspector_action = QLabel(), QLabel()
-        self._inspector_value, self._inspector_position = QLabel(), QLabel()
         self._action_status = QLabel("Ready")
+        self._action_status.setObjectName("actionStatus")
         self._action_status.setProperty("state", "idle")
-        self._recovery_notice = QLabel()
-        self._recovery_notice.setWordWrap(True)
-        self._recovery_notice.setObjectName("warningText")
 
         self._build_window()
         self._apply_style()
@@ -204,7 +199,7 @@ class MainWindow(QMainWindow):
         self._build_key_grid(self._columns, self._rows)
         self._select_key(0)
         if self._store.recovery_path is not None:
-            self._recovery_notice.setText(
+            self._action_status.setText(
                 f"Invalid configuration preserved as {self._store.recovery_path.name}. "
                 "Safe defaults are active."
             )
@@ -215,24 +210,15 @@ class MainWindow(QMainWindow):
 
     def _build_window(self) -> None:
         top = QHBoxLayout()
-        top.setContentsMargins(14, 10, 14, 10)
-        top.addWidget(QLabel("Profile"))
-        top.addWidget(self._profile_combo)
-        top.addWidget(self._small_button("＋", self._add_profile, "New profile"))
-        top.addWidget(self._small_button("✎", self._rename_profile, "Rename profile"))
-        top.addWidget(self._small_button("⧉", self._duplicate_profile, "Duplicate profile"))
-        top.addWidget(self._small_button("−", self._delete_profile, "Delete profile"))
-        top.addSpacing(16)
-        top.addWidget(QLabel("Page"))
-        top.addWidget(self._page_combo)
-        top.addWidget(self._small_button("＋", self._add_page, "New page"))
-        top.addWidget(self._small_button("✎", self._rename_page, "Rename page"))
-        top.addWidget(self._small_button("←", lambda: self._move_page(-1), "Move page left"))
-        top.addWidget(self._small_button("→", lambda: self._move_page(1), "Move page right"))
-        top.addWidget(self._small_button("−", self._delete_page, "Delete page"))
+        top.setContentsMargins(16, 12, 16, 12)
+        selectors = QVBoxLayout()
+        selectors.setSpacing(0)
+        selectors.addWidget(self._profile_combo)
+        selectors.addWidget(self._page_combo)
+        top.addLayout(selectors)
         top.addStretch(1)
         top.addWidget(self._device_status)
-        top.addWidget(self._detect_button)
+        top.addWidget(self._settings_button())
 
         left = QWidget()
         left_layout = QVBoxLayout(left)
@@ -252,12 +238,7 @@ class MainWindow(QMainWindow):
 
         canvas = QWidget()
         canvas_layout = QVBoxLayout(canvas)
-        canvas_layout.setContentsMargins(22, 16, 22, 18)
-        canvas_header = QHBoxLayout()
-        canvas_header.addWidget(self._canvas_title)
-        canvas_header.addStretch()
-        canvas_header.addWidget(self._canvas_hint)
-        canvas_layout.addLayout(canvas_header)
+        canvas_layout.setContentsMargins(22, 12, 22, 18)
         canvas_layout.addWidget(self._deck_canvas)
         quick = QFrame()
         quick.setObjectName("quickEditor")
@@ -302,43 +283,10 @@ class MainWindow(QMainWindow):
         canvas_layout.addWidget(quick_scroll, 0, Qt.AlignmentFlag.AlignHCenter)
         canvas_layout.addStretch(1)
 
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(15, 14, 15, 14)
-        right_layout.addWidget(self._heading("Selected key"))
-        self._key_preview = QLabel("1")
-        self._key_preview.setObjectName("keyPreview")
-        self._key_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._key_preview.setFixedSize(76, 76)
-        right_layout.addWidget(self._key_preview, 0, Qt.AlignmentFlag.AlignHCenter)
-        for caption, value in (
-            ("KEY", self._inspector_key),
-            ("ACTION", self._inspector_action),
-            ("VALUE", self._inspector_value),
-            ("POSITION", self._inspector_position),
-            ("LAST ACTION", self._action_status),
-        ):
-            right_layout.addWidget(self._caption(caption))
-            value.setWordWrap(True)
-            value.setObjectName("inspectorValue")
-            right_layout.addWidget(value)
-        right_layout.addSpacing(12)
-        right_layout.addWidget(self._heading("Configuration"))
-        config_path = QLabel(str(self._store.path))
-        config_path.setWordWrap(True)
-        config_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        config_path.setObjectName("mutedText")
-        right_layout.addWidget(config_path)
-        right_layout.addWidget(self._recovery_notice)
-        right_layout.addStretch()
-        right.setMinimumWidth(250)
-        right.setMaximumWidth(340)
-
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left)
         splitter.addWidget(canvas)
-        splitter.addWidget(right)
-        splitter.setSizes([240, 760, 280])
+        splitter.setSizes([240, 1040])
         splitter.setStretchFactor(1, 1)
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
@@ -353,6 +301,38 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setLayout(root_layout)
         self.setCentralWidget(root)
+        self.statusBar().addWidget(self._action_status, 1)
+
+    def _settings_button(self) -> QToolButton:
+        button = QToolButton()
+        button.setObjectName("settingsButton")
+        button.setText("⚙")
+        button.setToolTip("Profile, page, and device settings")
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        actions = (
+            ("Detect Stream Deck", self.detect_device),
+            (None, None),
+            ("New profile", self._add_profile),
+            ("Rename profile", self._rename_profile),
+            ("Duplicate profile", self._duplicate_profile),
+            ("Delete profile", self._delete_profile),
+            (None, None),
+            ("New page", self._add_page),
+            ("Rename page", self._rename_page),
+            ("Move page left", lambda: self._move_page(-1)),
+            ("Move page right", lambda: self._move_page(1)),
+            ("Delete page", self._delete_page),
+        )
+        for label, callback in actions:
+            if label is None:
+                menu.addSeparator()
+            else:
+                action = menu.addAction(label)
+                action.triggered.connect(callback)
+        button.setMenu(menu)
+        self._settings_menu = menu
+        return button
 
     @Slot(int)
     def _set_editor_width(self, width: int) -> None:
@@ -370,12 +350,6 @@ class MainWindow(QMainWindow):
     def _heading(text: str) -> QLabel:
         label = QLabel(text)
         label.setObjectName("sectionTitle")
-        return label
-
-    @staticmethod
-    def _caption(text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("caption")
         return label
 
     def _populate_action_library(self) -> None:
@@ -431,9 +405,7 @@ class MainWindow(QMainWindow):
             self._page_action_combo.setCurrentIndex(max(index, 0))
 
     def _refresh_canvas(self) -> None:
-        profile, page = self._active_profile(), self._active_page()
-        self._canvas_title.setText(f"{profile.name} · {page.name}")
-        self._canvas_hint.setText(f"Page {profile.pages.index(page) + 1} of {len(profile.pages)}")
+        page = self._active_page()
         for index, button in enumerate(self._key_buttons):
             key = page.keys.get(index, KeyConfig())
             button.setText(key.label.strip() or str(index + 1))
@@ -482,12 +454,6 @@ class MainWindow(QMainWindow):
         self._working_directory_edit.setText(key.working_directory)
         self._trigger_combo.setCurrentIndex(max(self._trigger_combo.findData(key.trigger), 0))
         self._update_action_editor()
-        self._inspector_key.setText(key.label or f"Key {index + 1}")
-        self._key_preview.setText((key.label.strip() or str(index + 1))[:5])
-        self._inspector_action.setText(ACTION_LABELS.get(key.action_type, key.action_type))
-        self._inspector_value.setText(key.action_value or "Not configured")
-        row, column = divmod(index, self._columns)
-        self._inspector_position.setText(f"Row {row + 1}, column {column + 1} · index {index}")
 
     @Slot()
     def _apply_key_edits(self) -> None:
@@ -777,24 +743,23 @@ class MainWindow(QMainWindow):
                 background: #151e2b; color: #e7edf8;
                 selection-background-color: #17384a;
             }
+            QComboBox#primarySelector, QComboBox#secondarySelector {
+                background: transparent; border: 0; padding: 1px 4px;
+            }
+            QComboBox#primarySelector { font-size: 18px; font-weight: 700; }
+            QComboBox#secondarySelector { color: #b6c2d2; font-size: 14px; }
             QSplitter::handle { background: #2c384a; width: 1px; }
-            QLabel#canvasTitle { font-size: 18px; font-weight: 700; }
             QLabel#sectionTitle { font-size: 14px; font-weight: 700; }
-            QLabel#caption { color: #91a1b7; font-size: 10px; font-weight: 700; margin-top: 8px; }
             QLabel#mutedText { color: #91a1b7; }
             QLabel#warningText { color: #f0a65b; }
-            QLabel#inspectorValue {
-                background: #0e1622; border: 1px solid #354257;
-                border-radius: 5px; padding: 8px;
-            }
-            QLabel#inspectorValue[state="running"] { color: #75ddf8; }
-            QLabel#inspectorValue[state="success"] { color: #70d7a5; }
-            QLabel#inspectorValue[state="failure"] { color: #f0a65b; }
-            QLabel#keyPreview {
-                background: #0b1724; border: 2px solid #2db7e2;
-                border-radius: 10px; color: #74daf7;
-                font-size: 28px; font-weight: 700;
-            }
+            QLabel#deviceStatus { color: #91a1b7; }
+            QLabel#actionStatus[state="running"] { color: #75ddf8; }
+            QLabel#actionStatus[state="success"] { color: #70d7a5; }
+            QLabel#actionStatus[state="failure"] { color: #f0a65b; }
+            QStatusBar { background: #0c131d; border-top: 1px solid #263447; }
+            QMenu { background: #151e2b; border: 1px solid #354257; padding: 6px; }
+            QMenu::item { padding: 7px 28px 7px 12px; }
+            QMenu::item:selected { background: #17384a; }
             QFrame#deckFrame {
                 background: #05090f; border-radius: 14px;
             }
@@ -806,6 +771,10 @@ class MainWindow(QMainWindow):
                 min-width: 25px; background: #182332;
                 border: 1px solid #3a485d; border-radius: 4px;
                 padding: 5px; color: #e7edf8;
+            }
+            QToolButton#settingsButton {
+                border: 0; background: transparent; font-size: 22px;
+                color: #aab8c9; padding: 8px;
             }
             QFrame#deckFrame QToolButton {
                 background: #101c2a; border: 2px solid #2b3b50;
