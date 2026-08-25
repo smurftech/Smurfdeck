@@ -62,6 +62,18 @@ class StreamDeckDevice:
         callback = self._on_key_change if sink is not None else None
         self._deck.set_key_callback(callback)
 
+    @property
+    def connected(self) -> bool:
+        try:
+            return bool(self._deck.connected())
+        except (OSError, TransportError):
+            return False
+
+    def set_brightness(self, percent: int) -> None:
+        if not 0 <= percent <= 100:
+            raise ValueError("Brightness must be between 0 and 100")
+        self._deck.set_brightness(percent)
+
     def _on_key_change(self, _deck: Any, key: int, state: bool) -> None:
         with self._lock:
             sink = self._sink

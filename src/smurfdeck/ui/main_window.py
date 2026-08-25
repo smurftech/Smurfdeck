@@ -3,9 +3,10 @@ from __future__ import annotations
 from contextlib import suppress
 from copy import deepcopy
 
-from PySide6.QtCore import QObject, QSignalBlocker, QSize, Qt, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QResizeEvent
+from PySide6.QtCore import QObject, QSignalBlocker, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QAction, QCloseEvent, QIcon, QResizeEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFrame,
     QGridLayout,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStackedWidget,
+    QSystemTrayIcon,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -40,7 +42,7 @@ from smurfdeck.actions.shortcuts import (
     parse_shortcut,
     supported_key_codes,
 )
-from smurfdeck.brand import STYLESHEET
+from smurfdeck.brand import APP_ICON_PATH, STYLESHEET
 from smurfdeck.devices.base import DeckKeyEvent
 from smurfdeck.devices.streamdeck import StreamDeckDevice
 from smurfdeck.input.uinput import LazyUInputEmitter
@@ -153,6 +155,8 @@ class MainWindow(QMainWindow):
         self._store = store or ConfigStore()
         self._config = self._store.load()
         self._device: StreamDeckDevice | None = None
+        self._devices: list[StreamDeckDevice] = []
+        self._quit_requested = False
         self._selected_key = 0
         self._columns, self._rows = 5, 3
         self._key_buttons: list[QToolButton] = []
@@ -178,6 +182,20 @@ class MainWindow(QMainWindow):
         self._device_status = QLabel("No device connected")
         self._device_status.setObjectName("deviceStatus")
         self._device_status.setProperty("state", "disconnected")
+        self._device_combo = QComboBox()
+        self._device_combo.setObjectName("deviceSelector")
+        self._device_combo.addItem("Waiting for device…", "")
+        self._device_combo.currentIndexChanged.connect(self._on_device_selected)
+        self._brightness_combo = QComboBox()
+        self._brightness_combo.setObjectName("brightnessSelector")
+        for percent in (25, 50, 75, 100):
+            self._brightness_combo.addItem(f"{percent}%", percent)
+        brightness_index = self._brightness_combo.findData(self._config.brightness)
+        if brightness_index < 0:
+            self._brightness_combo.addItem(f"{self._config.brightness}%", self._config.brightness)
+            brightness_index = self._brightness_combo.count() - 1
+        self._brightness_combo.setCurrentIndex(brightness_index)
+        self._brightness_combo.currentIndexChanged.connect(self._set_brightness)
         self._profile_combo.currentIndexChanged.connect(self._on_profile_selected)
         self._page_combo.currentIndexChanged.connect(self._on_page_selected)
 
@@ -231,9 +249,15 @@ class MainWindow(QMainWindow):
 
         self._build_window()
         self._apply_style()
+        self._setup_tray()
+        self._monitor_timer = QTimer(self)
+        self._monitor_timer.setInterval(2500)
+        self._monitor_timer.timeout.connect(self._monitor_devices)
+        self._monitor_timer.start()
         self._refresh_profile_combo()
         self._build_key_grid(self._columns, self._rows)
         self._select_key(0)
+        QTimer.singleShot(0, self.detect_device)
         if self._store.recovery_path is not None:
             self._action_status.setText(
                 f"Invalid configuration preserved as {self._store.recovery_path.name}. "
@@ -270,6 +294,8 @@ class MainWindow(QMainWindow):
         selectors.addWidget(self._page_combo)
         top.addLayout(selectors)
         top.addStretch(1)
+        top.addWidget(self._device_combo)
+        top.addWidget(self._brightness_combo)
         top.addWidget(self._device_status)
         top.addWidget(self._settings_button())
 
@@ -768,29 +794,76 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Configuration save failed", str(error))
 
     @Slot()
-    def detect_device(self) -> None:
-        self._disconnect_device()
+    def detect_device(self, notify: bool = False) -> None:
+        self._disconnect_all_devices()
         try:
             devices = StreamDeckDevice.discover()
         except Exception as error:
-            self._show_detection_error(error)
+            if notify:
+                self._show_detection_error(error)
             return
+        self._devices = list(devices)
+        with QSignalBlocker(self._device_combo):
+            self._device_combo.clear()
+            for index, device in enumerate(self._devices):
+                info = device.info
+                serial = info.serial or f"device-{index}"
+                self._device_combo.addItem(info.model, serial)
         if not devices:
+            self._device_combo.addItem("Waiting for device…", "")
             self._device_status.setText("No Stream Deck found")
             self._set_device_state("disconnected")
             return
-        self._device = devices[0]
-        for extra in devices[1:]:
-            extra.close()
-        geometry = self._device.info.geometry
+        preferred = self._device_combo.findData(self._config.preferred_device_serial)
+        self._device_combo.setCurrentIndex(max(preferred, 0))
+        self._activate_device(max(preferred, 0), notify)
+
+    @Slot(int)
+    def _on_device_selected(self, index: int) -> None:
+        if 0 <= index < len(self._devices):
+            self._activate_device(index, True)
+
+    def _activate_device(self, index: int, notify: bool = False) -> None:
+        if self._device is not None:
+            with suppress(Exception):
+                self._device.set_event_sink(None)
+        self._device = self._devices[index]
+        info = self._device.info
+        geometry = info.geometry
         self._columns, self._rows = geometry.columns, geometry.rows
         self._device_status.setText(
-            f"● {self._device.info.model} · {geometry.columns}×{geometry.rows}"
+            f"● {info.model} · {geometry.columns}×{geometry.rows}"
         )
         self._set_device_state("connected")
+        self._config.preferred_device_serial = info.serial or self._device_combo.itemData(index)
+        self._save()
         self._build_key_grid(geometry.columns, geometry.rows)
         self._device.set_event_sink(self._events.key_changed.emit)
+        self._device.set_brightness(self._config.brightness)
         self._render_active_page()
+        if notify:
+            self._notify("Device connected", info.model)
+
+    @Slot(int)
+    def _set_brightness(self, index: int) -> None:
+        if index < 0:
+            return
+        self._config.brightness = int(self._brightness_combo.itemData(index))
+        self._save()
+        if self._device is not None:
+            try:
+                self._device.set_brightness(self._config.brightness)
+            except Exception as error:
+                self._show_detection_error(error)
+
+    def _monitor_devices(self) -> None:
+        if self._device is not None and self._device.connected:
+            return
+        if self._device is not None:
+            self._device_status.setText("Device disconnected · reconnecting…")
+            self._set_device_state("failure")
+            self._notify("Device disconnected", "SmurfDeck is waiting to reconnect.")
+        self.detect_device(False)
 
     def _render_active_page(self) -> None:
         if self._device is not None:
@@ -866,20 +939,81 @@ class MainWindow(QMainWindow):
         self._device_status.style().unpolish(self._device_status)
         self._device_status.style().polish(self._device_status)
 
-    def _disconnect_device(self) -> None:
-        if self._device is not None:
+    def _disconnect_all_devices(self) -> None:
+        devices = list(self._devices)
+        if self._device is not None and self._device not in devices:
+            devices.append(self._device)
+        for device in devices:
             with suppress(Exception):
-                self._device.close()
-            self._device = None
+                device.close()
+        self._devices.clear()
+        self._device = None
         self._device_status.setText("No device connected")
         self._set_device_state("disconnected")
+
+    def _setup_tray(self) -> None:
+        self._tray = QSystemTrayIcon(QIcon(str(APP_ICON_PATH)), self)
+        tray_menu = QMenu()
+        show_action = QAction("Show SmurfDeck", self)
+        show_action.triggered.connect(self._show_from_tray)
+        detect_action = QAction("Detect devices", self)
+        detect_action.triggered.connect(lambda: self.detect_device(True))
+        close_to_tray = QAction("Close to tray", self)
+        close_to_tray.setCheckable(True)
+        close_to_tray.setChecked(self._config.close_to_tray)
+        close_to_tray.toggled.connect(self._set_close_to_tray)
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self._quit_from_tray)
+        tray_menu.addAction(show_action)
+        tray_menu.addAction(detect_action)
+        tray_menu.addAction(close_to_tray)
+        tray_menu.addSeparator()
+        tray_menu.addAction(quit_action)
+        self._tray.setContextMenu(tray_menu)
+        self._tray.activated.connect(lambda _reason: self._show_from_tray())
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            app = QApplication.instance()
+            if app is not None:
+                app.setQuitOnLastWindowClosed(False)
+            self._tray.show()
+
+    def _set_close_to_tray(self, enabled: bool) -> None:
+        self._config.close_to_tray = enabled
+        self._save()
+
+    def _show_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _notify(self, title: str, message: str) -> None:
+        if self._tray.isVisible():
+            self._tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information)
+
+    def _quit_from_tray(self) -> None:
+        self._quit_requested = True
+        self.close()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _apply_style(self) -> None:
         self.setStyleSheet(STYLESHEET)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if (
+            not self._quit_requested
+            and self._config.close_to_tray
+            and self._tray.isVisible()
+        ):
+            self.hide()
+            event.ignore()
+            self._notify("SmurfDeck is still running", "Use the tray menu to quit.")
+            return
+        self._monitor_timer.stop()
         self._save()
-        self._disconnect_device()
+        self._disconnect_all_devices()
+        self._tray.hide()
         with suppress(OSError):
             self._action_engine.close()
         super().closeEvent(event)

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 DEFAULT_KEY_COUNT = 15
 
 
@@ -166,6 +166,9 @@ class AppConfig:
     profiles: list[ProfileConfig] = field(default_factory=list)
     active_profile_id: str = ""
     schema_version: int = SCHEMA_VERSION
+    preferred_device_serial: str = ""
+    brightness: int = 75
+    close_to_tray: bool = True
 
     def __post_init__(self) -> None:
         if not self.profiles:
@@ -220,6 +223,9 @@ class AppConfig:
             "schema_version": self.schema_version,
             "active_profile_id": self.active_profile_id,
             "profiles": [profile.to_dict() for profile in self.profiles],
+            "preferred_device_serial": self.preferred_device_serial,
+            "brightness": self.brightness,
+            "close_to_tray": self.close_to_tray,
         }
 
     @classmethod
@@ -227,15 +233,21 @@ class AppConfig:
         if not isinstance(data, dict):
             raise ValueError("Configuration root must be an object")
         version = data.get("schema_version")
-        if version not in (1, 2, 3, SCHEMA_VERSION):
+        if version not in (1, 2, 3, 4, SCHEMA_VERSION):
             raise ValueError(f"Unsupported configuration schema version: {version!r}")
         raw_profiles = data.get("profiles", [])
         if not isinstance(raw_profiles, list) or not raw_profiles:
             raise ValueError("Configuration requires at least one profile")
+        brightness = int(data.get("brightness", 75))
+        if not 0 <= brightness <= 100:
+            raise ValueError("Brightness must be between 0 and 100")
         return cls(
             schema_version=SCHEMA_VERSION,
             active_profile_id=str(data.get("active_profile_id", "")),
             profiles=[ProfileConfig.from_dict(profile) for profile in raw_profiles],
+            preferred_device_serial=str(data.get("preferred_device_serial", "")),
+            brightness=brightness,
+            close_to_tray=bool(data.get("close_to_tray", True)),
         )
 
 

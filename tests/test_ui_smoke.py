@@ -15,9 +15,21 @@ class FakeDevice:
     def __init__(self) -> None:
         self.labels: dict[int, str] = {}
         self.info = DeckInfo("Fake Deck", DeckGeometry(5, 3, 72, 72))
+        self.connected = True
+        self.brightness = 0
+        self.closed = False
 
     def render_key_label(self, index: int, label: str) -> None:
         self.labels[index] = label
+
+    def set_event_sink(self, _sink: object) -> None:
+        pass
+
+    def set_brightness(self, percent: int) -> None:
+        self.brightness = percent
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class FakeEmitter:
@@ -201,3 +213,31 @@ def test_three_row_key_editor_does_not_need_a_scrollbar(tmp_path) -> None:
     assert window._quick_scroll.verticalScrollBar().maximum() == 0
     window.close()
     app.processEvents()
+
+
+def test_device_preference_brightness_and_selection_are_restored(
+    tmp_path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    store = ConfigStore(tmp_path / "config.json")
+    config = store.load()
+    config.preferred_device_serial = "SECOND"
+    config.brightness = 50
+    store.save(config)
+    first, second = FakeDevice(), FakeDevice()
+    first.info = DeckInfo("First", DeckGeometry(5, 3, 72, 72), serial="FIRST")
+    second.info = DeckInfo("Second", DeckGeometry(5, 3, 72, 72), serial="SECOND")
+    window = MainWindow(store)
+    window._monitor_timer.stop()
+    monkeypatch.setattr(
+        "smurfdeck.ui.main_window.StreamDeckDevice.discover",
+        lambda: [first, second],
+    )
+    window.detect_device()
+    assert window._device is second
+    assert window._device_combo.currentData() == "SECOND"
+    assert second.brightness == 50
+    window._quit_requested = True
+    window.close()
+    app.processEvents()
+    assert first.closed and second.closed
