@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from smurfdeck.brand import STYLESHEET
 from smurfdeck.actions.desktop import (
     DesktopActionRunner,
     parse_command,
@@ -156,6 +157,7 @@ class MainWindow(QMainWindow):
         self._page_combo.setMaximumWidth(260)
         self._device_status = QLabel("No device connected")
         self._device_status.setObjectName("deviceStatus")
+        self._device_status.setProperty("state", "disconnected")
         self._profile_combo.currentIndexChanged.connect(self._on_profile_selected)
         self._page_combo.currentIndexChanged.connect(self._on_page_selected)
 
@@ -187,6 +189,7 @@ class MainWindow(QMainWindow):
         self._trigger_combo.addItem("On key release", "release")
         self._trigger_combo.addItem("On press and release", "both")
         self._apply_key_button = QPushButton("Apply to key")
+        self._apply_key_button.setObjectName("primaryButton")
         self._apply_key_button.clicked.connect(self._apply_key_edits)
 
         self._action_status = QLabel("Ready")
@@ -211,6 +214,23 @@ class MainWindow(QMainWindow):
     def _build_window(self) -> None:
         top = QHBoxLayout()
         top.setContentsMargins(16, 12, 16, 12)
+        brand = QWidget()
+        brand.setObjectName("brandLockup")
+        brand_layout = QVBoxLayout(brand)
+        brand_layout.setContentsMargins(0, 0, 20, 0)
+        brand_layout.setSpacing(0)
+        product_name = QLabel(
+            '<span style="color:#F2F4F7">Smurf</span>'
+            '<span style="color:#0D6EFD">Deck</span>'
+        )
+        product_name.setObjectName("productName")
+        product_name.setTextFormat(Qt.TextFormat.RichText)
+        product_descriptor = QLabel("// CONTROL SYSTEM")
+        product_descriptor.setObjectName("productDescriptor")
+        brand_layout.addWidget(product_name)
+        brand_layout.addWidget(product_descriptor)
+        top.addWidget(brand)
+
         selectors = QVBoxLayout()
         selectors.setSpacing(0)
         selectors.addWidget(self._profile_combo)
@@ -221,6 +241,7 @@ class MainWindow(QMainWindow):
         top.addWidget(self._settings_button())
 
         left = QWidget()
+        left.setObjectName("actionPanel")
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(14, 14, 14, 14)
         left_layout.addWidget(self._heading("Action library"))
@@ -237,6 +258,7 @@ class MainWindow(QMainWindow):
         left.setMaximumWidth(300)
 
         canvas = QWidget()
+        canvas.setObjectName("workspace")
         canvas_layout = QVBoxLayout(canvas)
         canvas_layout.setContentsMargins(22, 12, 22, 18)
         canvas_layout.addWidget(self._deck_canvas)
@@ -646,6 +668,7 @@ class MainWindow(QMainWindow):
             return
         if not devices:
             self._device_status.setText("No Stream Deck found")
+            self._set_device_state("disconnected")
             return
         self._device = devices[0]
         for extra in devices[1:]:
@@ -655,6 +678,7 @@ class MainWindow(QMainWindow):
         self._device_status.setText(
             f"● {self._device.info.model} · {geometry.columns}×{geometry.rows}"
         )
+        self._set_device_state("connected")
         self._build_key_grid(geometry.columns, geometry.rows)
         self._device.set_event_sink(self._events.key_changed.emit)
         self._render_active_page()
@@ -717,7 +741,13 @@ class MainWindow(QMainWindow):
 
     def _show_detection_error(self, error: Exception) -> None:
         self._device_status.setText("Device error")
+        self._set_device_state("failure")
         QMessageBox.warning(self, "Stream Deck error", str(error))
+
+    def _set_device_state(self, state: str) -> None:
+        self._device_status.setProperty("state", state)
+        self._device_status.style().unpolish(self._device_status)
+        self._device_status.style().polish(self._device_status)
 
     def _disconnect_device(self) -> None:
         if self._device is not None:
@@ -725,79 +755,10 @@ class MainWindow(QMainWindow):
                 self._device.close()
             self._device = None
         self._device_status.setText("No device connected")
+        self._set_device_state("disconnected")
 
     def _apply_style(self) -> None:
-        self.setStyleSheet(
-            """
-            QMainWindow { background: #0f1621; }
-            QWidget { color: #e7edf8; font-size: 13px; }
-            QWidget#deckCanvas { background: #101824; }
-            QScrollArea#quickScroll { background: transparent; }
-            QScrollArea#quickScroll > QWidget > QWidget { background: transparent; }
-            QWidget#toolbar { background: #0c131d; border-bottom: 1px solid #263447; }
-            QLineEdit, QComboBox, QListWidget {
-                background: #0e1622; border: 1px solid #354257;
-                border-radius: 5px; padding: 5px; color: #e7edf8;
-            }
-            QComboBox QAbstractItemView {
-                background: #151e2b; color: #e7edf8;
-                selection-background-color: #17384a;
-            }
-            QComboBox#primarySelector, QComboBox#secondarySelector {
-                background: transparent; border: 0; padding: 1px 4px;
-            }
-            QComboBox#primarySelector { font-size: 18px; font-weight: 700; }
-            QComboBox#secondarySelector { color: #b6c2d2; font-size: 14px; }
-            QSplitter::handle { background: #2c384a; width: 1px; }
-            QLabel#sectionTitle { font-size: 14px; font-weight: 700; }
-            QLabel#mutedText { color: #91a1b7; }
-            QLabel#warningText { color: #f0a65b; }
-            QLabel#deviceStatus { color: #91a1b7; }
-            QLabel#actionStatus[state="running"] { color: #75ddf8; }
-            QLabel#actionStatus[state="success"] { color: #70d7a5; }
-            QLabel#actionStatus[state="failure"] { color: #f0a65b; }
-            QStatusBar { background: #0c131d; border-top: 1px solid #263447; }
-            QMenu { background: #151e2b; border: 1px solid #354257; padding: 6px; }
-            QMenu::item { padding: 7px 28px 7px 12px; }
-            QMenu::item:selected { background: #17384a; }
-            QFrame#deckFrame {
-                background: #05090f; border-radius: 14px;
-            }
-            QFrame#quickEditor {
-                background: #162131; border: 1px solid #3a485d;
-                border-radius: 8px;
-            }
-            QToolButton {
-                min-width: 25px; background: #182332;
-                border: 1px solid #3a485d; border-radius: 4px;
-                padding: 5px; color: #e7edf8;
-            }
-            QToolButton#settingsButton {
-                border: 0; background: transparent; font-size: 22px;
-                color: #aab8c9; padding: 8px;
-            }
-            QFrame#deckFrame QToolButton {
-                background: #101c2a; border: 2px solid #2b3b50;
-                border-radius: 11px; color: #eef8ff; font-weight: 600;
-                font-size: 14px;
-            }
-            QFrame#deckFrame QToolButton[selected="true"] { border-color: #31bfea; }
-            QFrame#deckFrame QToolButton[configured="true"] { background: #122536; }
-            QFrame#deckFrame QToolButton[actionState="running"] { border-color: #75ddf8; }
-            QFrame#deckFrame QToolButton[actionState="success"] { border-color: #70d7a5; }
-            QFrame#deckFrame QToolButton[actionState="failure"] { border-color: #f0a65b; }
-            QFrame#deckFrame QToolButton[pressed="true"] {
-                background: #17425a; border-color: #75ddf8;
-            }
-            QPushButton {
-                background: #182332; border: 1px solid #3a485d;
-                border-radius: 5px; padding: 7px 11px; color: #e7edf8;
-            }
-            QPushButton:hover, QToolButton:hover { border-color: #31bfea; }
-            QListWidget::item { padding: 9px; }
-            QListWidget::item:selected { background: #17384a; color: #80d4f1; }
-            """
-        )
+        self.setStyleSheet(STYLESHEET)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._save()
