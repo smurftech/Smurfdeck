@@ -3,7 +3,7 @@
 from pathlib import Path
 
 ASSET_DIR = Path(__file__).with_name("assets")
-APP_ICON_PATH = ASSET_DIR / "smurftech-app-icon.svg"
+APP_ICON_PATH = ASSET_DIR / "smurfdeck-app-icon.svg"
 
 COLORS = {
     "deep_night": "#0C111A",
