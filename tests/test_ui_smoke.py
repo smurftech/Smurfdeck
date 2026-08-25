@@ -189,3 +189,15 @@ def test_action_drop_assigns_action_and_can_be_undone(tmp_path) -> None:
     assert window.config.active_profile.active_page.keys.get(2) is None
     window.close()
     app.processEvents()
+
+
+def test_three_row_key_editor_does_not_need_a_scrollbar(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    window.resize(900, 600)
+    window.show()
+    app.processEvents()
+    assert window._quick_scroll.height() >= 200
+    assert window._quick_scroll.verticalScrollBar().maximum() == 0
+    window.close()
+    app.processEvents()
