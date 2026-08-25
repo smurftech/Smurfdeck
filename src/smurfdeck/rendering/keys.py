@@ -11,23 +11,35 @@ def numbered_key_image(deck: Any, number: int) -> bytes:
     return labeled_key_image(deck, str(number))
 
 
-def labeled_key_image(deck: Any, label: str) -> bytes:
+def labeled_key_image(
+    deck: Any,
+    label: str,
+    *,
+    icon: str = "",
+    foreground: str = "#F2F4F7",
+    background: str = "#101827",
+    state: str = "",
+) -> bytes:
     """Render a label in the device's native key image format."""
-    image = PILHelper.create_key_image(deck, background="#101827")
+    image = PILHelper.create_key_image(deck, background=background)
     draw = ImageDraw.Draw(image)
     text = label.strip()
     font = _fitted_font(text, image.size)
     draw.rounded_rectangle(
         (3, 3, image.width - 4, image.height - 4),
         radius=8,
-        outline="#38bdf8",
+        outline={"running": "#4FC3FF", "success": "#4FE0B6", "failure": "#F0A65B"}.get(
+            state, "#0D6EFD"
+        ),
         width=3,
     )
-    if text:
-        box = draw.multiline_textbbox((0, 0), text, font=font, align="center", spacing=2)
+    display = f"{icon}\n{text}".strip()
+    if display:
+        font = _fitted_font(display, image.size)
+        box = draw.multiline_textbbox((0, 0), display, font=font, align="center", spacing=2)
         x = (image.width - (box[2] - box[0])) / 2 - box[0]
         y = (image.height - (box[3] - box[1])) / 2 - box[1]
-        draw.multiline_text((x, y), text, font=font, fill="#f8fafc", align="center", spacing=2)
+        draw.multiline_text((x, y), display, font=font, fill=foreground, align="center", spacing=2)
     return PILHelper.to_native_key_format(deck, image)
 
 

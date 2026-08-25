@@ -44,10 +44,14 @@ Profile and page selection use a compact two-level header; management operations
 and device detection live in its settings menu. The duplicate inspector pane was
 removed, with its useful runtime feedback retained in the status bar.
 
-## Later editor enhancements
+## Phase 4 visual key editor
 
-- Add drag and drop from the action library, key-to-key movement, and undo/redo.
-- Add key icon, label, colour, and background editing with live device preview.
+- Drag actions from the library onto keys.
+- Move or copy key configurations with drag and drop.
+- Undo and redo key edits and drag/drop changes.
+- Configure portable technical icon presets, foreground colours, and backgrounds.
+- Preview key visuals on screen and on the connected device.
+- Show running, success, and failure feedback directly on physical and on-screen keys.
 
 ## Desktop integration
 
