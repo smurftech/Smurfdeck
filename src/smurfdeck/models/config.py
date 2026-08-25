@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DEFAULT_KEY_COUNT = 15
 
 
@@ -19,6 +19,9 @@ class KeyConfig:
     action_value: str = ""
     trigger: str = "press"
     working_directory: str = ""
+    icon: str = ""
+    foreground_color: str = "#F2F4F7"
+    background_color: str = "#101827"
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -27,6 +30,9 @@ class KeyConfig:
             "action_value": self.action_value,
             "trigger": self.trigger,
             "working_directory": self.working_directory,
+            "icon": self.icon,
+            "foreground_color": self.foreground_color,
+            "background_color": self.background_color,
         }
 
     @classmethod
@@ -36,12 +42,19 @@ class KeyConfig:
         trigger = str(data.get("trigger", "press"))
         if trigger not in {"press", "release", "both"}:
             raise ValueError(f"Unsupported key trigger: {trigger}")
+        foreground = str(data.get("foreground_color", "#F2F4F7")).upper()
+        background = str(data.get("background_color", "#101827")).upper()
+        if not all(_valid_color(color) for color in (foreground, background)):
+            raise ValueError("Key colours must use #RRGGBB format")
         return cls(
             label=str(data.get("label", "")),
             action_type=str(data.get("action_type", "none")),
             action_value=str(data.get("action_value", "")),
             trigger=trigger,
             working_directory=str(data.get("working_directory", "")),
+            icon=str(data.get("icon", "")),
+            foreground_color=foreground,
+            background_color=background,
         )
 
 
@@ -214,7 +227,7 @@ class AppConfig:
         if not isinstance(data, dict):
             raise ValueError("Configuration root must be an object")
         version = data.get("schema_version")
-        if version not in (1, 2, SCHEMA_VERSION):
+        if version not in (1, 2, 3, SCHEMA_VERSION):
             raise ValueError(f"Unsupported configuration schema version: {version!r}")
         raw_profiles = data.get("profiles", [])
         if not isinstance(raw_profiles, list) or not raw_profiles:
@@ -224,3 +237,9 @@ class AppConfig:
             active_profile_id=str(data.get("active_profile_id", "")),
             profiles=[ProfileConfig.from_dict(profile) for profile in raw_profiles],
         )
+
+
+def _valid_color(value: str) -> bool:
+    return len(value) == 7 and value.startswith("#") and all(
+        character in "0123456789ABCDEF" for character in value[1:]
+    )

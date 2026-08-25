@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
+from copy import deepcopy
 
 from PySide6.QtCore import QObject, QSignalBlocker, QSize, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QResizeEvent
@@ -12,7 +13,6 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMenu,
@@ -46,6 +46,7 @@ from smurfdeck.devices.streamdeck import StreamDeckDevice
 from smurfdeck.input.uinput import LazyUInputEmitter
 from smurfdeck.models.config import AppConfig, KeyConfig, PageConfig, ProfileConfig
 from smurfdeck.persistence.config_store import ConfigStore
+from smurfdeck.ui.key_button import ActionListWidget, KeyButton
 
 ACTION_LABELS = {
     "none": "No action",
@@ -56,6 +57,23 @@ ACTION_LABELS = {
     "command": "Run command",
     "page": "Switch page",
 }
+ICON_PRESETS = (
+    ("No icon", ""),
+    ("Run", "RUN"),
+    ("Keys", "KEY"),
+    ("Media", "VOL"),
+    ("App", "APP"),
+    ("Page", "PAGE"),
+)
+COLOR_PRESETS = (
+    ("Deep Night", "#0C111A"),
+    ("Night Slate", "#121826"),
+    ("Steel Blue", "#1E2A3A"),
+    ("Electric Blue", "#0D6EFD"),
+    ("Cyan Accent", "#4FC3FF"),
+    ("Ice Blue", "#E6F0FF"),
+    ("Clean White", "#F2F4F7"),
+)
 
 
 class HardwareEvents(QObject):
@@ -138,6 +156,8 @@ class MainWindow(QMainWindow):
         self._selected_key = 0
         self._columns, self._rows = 5, 3
         self._key_buttons: list[QToolButton] = []
+        self._undo_stack: list[dict[int, KeyConfig]] = []
+        self._redo_stack: list[dict[int, KeyConfig]] = []
         self._events = HardwareEvents(self)
         self._events.key_changed.connect(self._on_key_event)
         self._events.action_finished.connect(self._on_action_finished)
@@ -161,7 +181,8 @@ class MainWindow(QMainWindow):
         self._profile_combo.currentIndexChanged.connect(self._on_profile_selected)
         self._page_combo.currentIndexChanged.connect(self._on_page_selected)
 
-        self._action_list = QListWidget()
+        self._action_list = ActionListWidget()
+        self._action_list.setDragEnabled(True)
         self._populate_action_library()
         self._action_list.itemClicked.connect(self._on_action_activated)
         self._deck_canvas = ResponsiveDeckCanvas()
@@ -188,6 +209,18 @@ class MainWindow(QMainWindow):
         self._trigger_combo.addItem("On key press", "press")
         self._trigger_combo.addItem("On key release", "release")
         self._trigger_combo.addItem("On press and release", "both")
+        self._icon_combo = QComboBox()
+        self._background_combo = QComboBox()
+        self._foreground_combo = QComboBox()
+        for label, value in ICON_PRESETS:
+            self._icon_combo.addItem(label, value)
+        for label, value in COLOR_PRESETS:
+            self._background_combo.addItem(f"Background · {label}", value)
+            self._foreground_combo.addItem(f"Text · {label}", value)
+        self._undo_button = QPushButton("Undo")
+        self._redo_button = QPushButton("Redo")
+        self._undo_button.clicked.connect(self._undo)
+        self._redo_button.clicked.connect(self._redo)
         self._apply_key_button = QPushButton("Apply to key")
         self._apply_key_button.setObjectName("primaryButton")
         self._apply_key_button.clicked.connect(self._apply_key_edits)
@@ -287,6 +320,14 @@ class MainWindow(QMainWindow):
         command_fields.addWidget(self._working_directory_edit, 2)
         self._value_stack.addWidget(command_editor)
         fields.addWidget(self._value_stack, 1, 0, 1, 3)
+        visual_fields = QHBoxLayout()
+        visual_fields.addWidget(self._icon_combo)
+        visual_fields.addWidget(self._background_combo)
+        visual_fields.addWidget(self._foreground_combo)
+        visual_fields.addStretch(1)
+        visual_fields.addWidget(self._undo_button)
+        visual_fields.addWidget(self._redo_button)
+        fields.addLayout(visual_fields, 2, 0, 1, 4)
         fields.setColumnStretch(0, 2)
         fields.setColumnStretch(1, 2)
         fields.setColumnStretch(2, 2)
@@ -430,7 +471,11 @@ class MainWindow(QMainWindow):
         page = self._active_page()
         for index, button in enumerate(self._key_buttons):
             key = page.keys.get(index, KeyConfig())
-            button.setText(key.label.strip() or str(index + 1))
+            label = key.label.strip() or str(index + 1)
+            button.setText(f"{key.icon}\n{label}".strip())
+            button.setStyleSheet(
+                f"background-color: {key.background_color}; color: {key.foreground_color};"
+            )
             button.setToolTip(ACTION_LABELS.get(key.action_type, key.action_type))
             button.setProperty("configured", key.action_type != "none")
             button.setProperty("actionState", "")
@@ -446,9 +491,11 @@ class MainWindow(QMainWindow):
                 item.widget().deleteLater()
         self._key_buttons.clear()
         for index in range(columns * rows):
-            button = QToolButton()
+            button = KeyButton(index)
             button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             button.clicked.connect(lambda _checked=False, key=index: self._select_key(key))
+            button.action_dropped.connect(self._drop_action)
+            button.key_dropped.connect(self._drop_key)
             self._key_grid.addWidget(button, index // columns, index % columns)
             self._key_buttons.append(button)
         self._deck_canvas.configure(columns, rows, self._key_buttons)
@@ -475,6 +522,13 @@ class MainWindow(QMainWindow):
         )
         self._working_directory_edit.setText(key.working_directory)
         self._trigger_combo.setCurrentIndex(max(self._trigger_combo.findData(key.trigger), 0))
+        self._icon_combo.setCurrentIndex(max(self._icon_combo.findData(key.icon), 0))
+        self._background_combo.setCurrentIndex(
+            max(self._background_combo.findData(key.background_color), 0)
+        )
+        self._foreground_combo.setCurrentIndex(
+            max(self._foreground_combo.findData(key.foreground_color), 0)
+        )
         self._update_action_editor()
 
     @Slot()
@@ -507,12 +561,66 @@ class MainWindow(QMainWindow):
         except ValueError as error:
             QMessageBox.warning(self, "Invalid action", str(error))
             return
+        self._push_undo()
         key = self._active_page().key(self._selected_key)
         key.label = self._label_edit.text().strip()
         key.action_type = action_type
         key.action_value = action_value
         key.trigger = str(self._trigger_combo.currentData())
         key.working_directory = working_directory if action_type == "command" else ""
+        key.icon = str(self._icon_combo.currentData())
+        key.background_color = str(self._background_combo.currentData())
+        key.foreground_color = str(self._foreground_combo.currentData())
+        self._save()
+        self._refresh_canvas()
+
+    def _push_undo(self) -> None:
+        self._undo_stack.append(deepcopy(self._active_page().keys))
+        self._undo_stack = self._undo_stack[-50:]
+        self._redo_stack.clear()
+
+    def _restore_keys(self, keys: dict[int, KeyConfig]) -> None:
+        self._active_page().keys = deepcopy(keys)
+        self._save()
+        self._refresh_canvas()
+
+    def _undo(self) -> None:
+        if self._undo_stack:
+            self._redo_stack.append(deepcopy(self._active_page().keys))
+            self._restore_keys(self._undo_stack.pop())
+
+    def _redo(self) -> None:
+        if self._redo_stack:
+            self._undo_stack.append(deepcopy(self._active_page().keys))
+            self._restore_keys(self._redo_stack.pop())
+
+    @Slot(int, str)
+    def _drop_action(self, index: int, label: str) -> None:
+        action_type = next(
+            (key for key, value in ACTION_LABELS.items() if value == label), None
+        )
+        if action_type is None:
+            return
+        self._push_undo()
+        self._active_page().key(index).action_type = action_type
+        self._selected_key = index
+        self._save()
+        self._refresh_canvas()
+
+    @Slot(int, int, bool)
+    def _drop_key(self, source: int, destination: int, copy: bool) -> None:
+        if source == destination:
+            return
+        self._push_undo()
+        page = self._active_page()
+        source_config = deepcopy(page.keys.get(source, KeyConfig()))
+        if copy:
+            page.keys[destination] = source_config
+        else:
+            destination_config = deepcopy(page.keys.get(destination, KeyConfig()))
+            page.keys[destination] = source_config
+            page.keys[source] = destination_config
+        self._selected_key = destination
         self._save()
         self._refresh_canvas()
 
@@ -694,7 +802,12 @@ class MainWindow(QMainWindow):
             return False
         key = self._active_page().keys.get(index, KeyConfig())
         try:
-            self._device.render_key_label(index, key.label.strip() or str(index + 1))
+            if hasattr(self._device, "render_key_config"):
+                render_config = deepcopy(key)
+                render_config.label = render_config.label.strip() or str(index + 1)
+                self._device.render_key_config(index, render_config)
+            else:
+                self._device.render_key_label(index, key.label.strip() or str(index + 1))
         except Exception as error:
             self._show_detection_error(error)
             return False
@@ -738,6 +851,9 @@ class MainWindow(QMainWindow):
             button.setProperty("actionState", state)
             button.style().unpolish(button)
             button.style().polish(button)
+            if self._device is not None and hasattr(self._device, "render_key_config"):
+                key = self._active_page().keys.get(key_index, KeyConfig())
+                self._device.render_key_config(key_index, key, state)
 
     def _show_detection_error(self, error: Exception) -> None:
         self._device_status.setText("Device error")

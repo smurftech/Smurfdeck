@@ -46,6 +46,29 @@ def test_version_one_configuration_migrates_with_press_trigger() -> None:
     legacy["schema_version"] = 1
     legacy["profiles"][0]["pages"][0]["keys"]["0"].pop("trigger")
     restored = AppConfig.from_dict(legacy)
-    assert restored.schema_version == 3
+    assert restored.schema_version == 4
     assert restored.active_profile.active_page.key(0).working_directory == ""
     assert restored.active_profile.active_page.key(0).trigger == "press"
+
+
+def test_key_visuals_round_trip_and_legacy_defaults() -> None:
+    config = AppConfig()
+    key = config.active_profile.active_page.key(1)
+    key.icon = "VOL"
+    key.foreground_color = "#E6F0FF"
+    key.background_color = "#0D6EFD"
+    restored = AppConfig.from_dict(config.to_dict()).active_profile.active_page.key(1)
+    assert (restored.icon, restored.foreground_color, restored.background_color) == (
+        "VOL",
+        "#E6F0FF",
+        "#0D6EFD",
+    )
+
+
+def test_key_visuals_reject_invalid_colours() -> None:
+    data = AppConfig().to_dict()
+    data["profiles"][0]["pages"][0]["keys"] = {
+        "0": {"background_color": "blue"}
+    }
+    with pytest.raises(ValueError, match="colours"):
+        AppConfig.from_dict(data)

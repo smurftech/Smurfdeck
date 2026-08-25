@@ -161,3 +161,31 @@ def test_phase_three_branding_is_applied(tmp_path) -> None:
     assert window._device_status.property("state") == "disconnected"
     window.close()
     app.processEvents()
+
+
+def test_visual_key_editor_supports_copy_undo_and_redo(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    source = window.config.active_profile.active_page.key(0)
+    source.label = "Music"
+    source.icon = "VOL"
+    source.background_color = "#0D6EFD"
+    window._drop_key(0, 1, True)
+    assert window.config.active_profile.active_page.key(1).icon == "VOL"
+    window._undo()
+    assert window.config.active_profile.active_page.key(1).icon == ""
+    window._redo()
+    assert window.config.active_profile.active_page.key(1).label == "Music"
+    window.close()
+    app.processEvents()
+
+
+def test_action_drop_assigns_action_and_can_be_undone(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    window._drop_action(2, "Media control")
+    assert window.config.active_profile.active_page.key(2).action_type == "media"
+    window._undo()
+    assert window.config.active_profile.active_page.keys.get(2) is None
+    window.close()
+    app.processEvents()
