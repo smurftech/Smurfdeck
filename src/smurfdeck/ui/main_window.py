@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from smurfdeck.brand import STYLESHEET
 from smurfdeck.actions.desktop import (
     DesktopActionRunner,
     parse_command,
@@ -41,6 +40,7 @@ from smurfdeck.actions.shortcuts import (
     parse_shortcut,
     supported_key_codes,
 )
+from smurfdeck.brand import STYLESHEET
 from smurfdeck.devices.base import DeckKeyEvent
 from smurfdeck.devices.streamdeck import StreamDeckDevice
 from smurfdeck.input.uinput import LazyUInputEmitter
