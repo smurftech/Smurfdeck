@@ -70,8 +70,9 @@ write cannot corrupt the active file. If the file is invalid or uses an unknown
 schema, SmurfDeck preserves a timestamped copy and starts with safe defaults.
 
 The editor protects the final profile and the final page in each profile from
-deletion. Configuration schema 5 stores visual-key settings and desktop/device
-preferences while transparently migrating schema 1–4 files.
+deletion. Configuration schema 6 stores visual-key settings, desktop/device
+preferences, advanced command options, and application-profile rules while
+transparently migrating schema 1–5 files.
 
 ## Desktop and device lifecycle
 
@@ -111,9 +112,26 @@ expansion, and command substitution therefore do not run implicitly. Put
 multi-step behavior in a reviewed script and configure SmurfDeck to launch that
 script directly.
 
+Command keys can override the default 60-second timeout and provide optional
+environment variables using `NAME=value; NAME2=value` syntax. Values are passed
+directly to the child process without shell expansion.
+
 Page actions can move to the next or previous page (wrapping at either end), or
 jump to a named page in the current profile. The desktop canvas and connected
 Stream Deck are refreshed together.
+
+## Application-aware profiles
+
+On KDE/Wayland, optional profile switching uses `kdotool` to identify the active
+application. From the settings menu, map the active application to the current
+profile and then enable automatic profile switching. Missing or unavailable
+`kdotool` disables detection safely without affecting normal operation.
+
+## Desktop launcher
+
+Built wheels install the SmurfDeck application-menu entry and scalable icon in
+the standard Linux shared-data locations. This makes SmurfDeck discoverable in
+KDE's launcher with the canonical product name and icon.
 
 ## Git workflow
 

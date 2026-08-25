@@ -46,7 +46,7 @@ def test_version_one_configuration_migrates_with_press_trigger() -> None:
     legacy["schema_version"] = 1
     legacy["profiles"][0]["pages"][0]["keys"]["0"].pop("trigger")
     restored = AppConfig.from_dict(legacy)
-    assert restored.schema_version == 5
+    assert restored.schema_version == 6
     assert restored.active_profile.active_page.key(0).working_directory == ""
     assert restored.active_profile.active_page.key(0).trigger == "press"
 
@@ -89,3 +89,17 @@ def test_brightness_rejects_out_of_range_values() -> None:
     data["brightness"] = 101
     with pytest.raises(ValueError, match="Brightness"):
         AppConfig.from_dict(data)
+
+
+def test_advanced_command_and_application_rules_round_trip() -> None:
+    config = AppConfig(auto_profile_switching=True)
+    config.application_profiles["org.kde.konsole"] = config.active_profile_id
+    key = config.active_profile.active_page.key(0)
+    key.command_timeout = 120
+    key.environment = {"MODE": "test"}
+    restored = AppConfig.from_dict(config.to_dict())
+    restored_key = restored.active_profile.active_page.key(0)
+    assert restored.auto_profile_switching is True
+    assert restored.application_profiles["org.kde.konsole"] == restored.active_profile_id
+    assert restored_key.command_timeout == 120
+    assert restored_key.environment == {"MODE": "test"}

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from smurfdeck.actions.desktop import (
     DesktopActionRunner,
     parse_command,
+    parse_environment,
     validate_open_target,
     validate_working_directory,
 )
@@ -43,6 +44,7 @@ from smurfdeck.actions.shortcuts import (
     supported_key_codes,
 )
 from smurfdeck.brand import APP_ICON_PATH, STYLESHEET
+from smurfdeck.desktop import active_application
 from smurfdeck.devices.base import DeckKeyEvent
 from smurfdeck.devices.streamdeck import StreamDeckDevice
 from smurfdeck.input.uinput import LazyUInputEmitter
@@ -223,6 +225,11 @@ class MainWindow(QMainWindow):
         self._page_action_combo = QComboBox()
         self._working_directory_edit = QLineEdit()
         self._working_directory_edit.setPlaceholderText("Working folder (required)")
+        self._environment_edit = QLineEdit()
+        self._environment_edit.setPlaceholderText("Environment · NAME=value; NAME2=value")
+        self._timeout_combo = QComboBox()
+        for seconds in (10, 30, 60, 120, 300):
+            self._timeout_combo.addItem(f"{seconds}s timeout", seconds)
         self._trigger_combo = QComboBox()
         self._trigger_combo.addItem("On key press", "press")
         self._trigger_combo.addItem("On key release", "release")
@@ -254,6 +261,10 @@ class MainWindow(QMainWindow):
         self._monitor_timer.setInterval(2500)
         self._monitor_timer.timeout.connect(self._monitor_devices)
         self._monitor_timer.start()
+        self._application_timer = QTimer(self)
+        self._application_timer.setInterval(1500)
+        self._application_timer.timeout.connect(self._monitor_active_application)
+        self._application_timer.start()
         self._refresh_profile_combo()
         self._build_key_grid(self._columns, self._rows)
         self._select_key(0)
@@ -344,6 +355,8 @@ class MainWindow(QMainWindow):
         command_fields.setSpacing(10)
         command_fields.addWidget(self._command_edit, 3)
         command_fields.addWidget(self._working_directory_edit, 2)
+        command_fields.addWidget(self._environment_edit, 2)
+        command_fields.addWidget(self._timeout_combo, 1)
         self._value_stack.addWidget(command_editor)
         fields.addWidget(self._value_stack, 1, 0, 1, 4)
         visual_fields = QHBoxLayout()
@@ -413,6 +426,9 @@ class MainWindow(QMainWindow):
             ("Move page left", lambda: self._move_page(-1)),
             ("Move page right", lambda: self._move_page(1)),
             ("Delete page", self._delete_page),
+            (None, None),
+            ("Map active application to profile", self._map_active_application),
+            ("Clear application profile rules", self._clear_application_rules),
         )
         for label, callback in actions:
             if label is None:
@@ -421,6 +437,10 @@ class MainWindow(QMainWindow):
                 action = menu.addAction(label)
                 action.triggered.connect(callback)
         button.setMenu(menu)
+        auto_switch = menu.addAction("Automatic profile switching")
+        auto_switch.setCheckable(True)
+        auto_switch.setChecked(self._config.auto_profile_switching)
+        auto_switch.toggled.connect(self._set_auto_profile_switching)
         self._settings_menu = menu
         return button
 
@@ -548,6 +568,14 @@ class MainWindow(QMainWindow):
             max(self._page_action_combo.findData(key.action_value), 0)
         )
         self._working_directory_edit.setText(key.working_directory)
+        self._environment_edit.setText(
+            "; ".join(f"{name}={value}" for name, value in key.environment.items())
+        )
+        timeout_index = self._timeout_combo.findData(key.command_timeout)
+        if timeout_index < 0:
+            self._timeout_combo.addItem(f"{key.command_timeout}s timeout", key.command_timeout)
+            timeout_index = self._timeout_combo.count() - 1
+        self._timeout_combo.setCurrentIndex(timeout_index)
         self._trigger_combo.setCurrentIndex(max(self._trigger_combo.findData(key.trigger), 0))
         self._icon_combo.setCurrentIndex(max(self._icon_combo.findData(key.icon), 0))
         self._background_combo.setCurrentIndex(
@@ -571,6 +599,7 @@ class MainWindow(QMainWindow):
             else self._value_edit.text().strip()
         )
         working_directory = self._working_directory_edit.text().strip()
+        environment: dict[str, str] = {}
         try:
             if action_type == "keyboard":
                 parse_shortcut(action_value)
@@ -583,6 +612,7 @@ class MainWindow(QMainWindow):
             elif action_type == "command":
                 parse_command(action_value)
                 working_directory = validate_working_directory(working_directory)
+                environment = parse_environment(self._environment_edit.text())
             elif action_type == "page" and not action_value:
                 raise ValueError("Choose a page destination")
         except ValueError as error:
@@ -595,6 +625,8 @@ class MainWindow(QMainWindow):
         key.action_value = action_value
         key.trigger = str(self._trigger_combo.currentData())
         key.working_directory = working_directory if action_type == "command" else ""
+        key.command_timeout = int(self._timeout_combo.currentData())
+        key.environment = environment if action_type == "command" else {}
         key.icon = str(self._icon_combo.currentData())
         key.background_color = str(self._background_combo.currentData())
         key.foreground_color = str(self._foreground_combo.currentData())
@@ -792,6 +824,48 @@ class MainWindow(QMainWindow):
             self._store.save(self._config)
         except OSError as error:
             QMessageBox.warning(self, "Configuration save failed", str(error))
+
+    def _set_auto_profile_switching(self, enabled: bool) -> None:
+        self._config.auto_profile_switching = enabled
+        self._save()
+
+    def _map_active_application(self) -> None:
+        application = active_application()
+        if application is None:
+            QMessageBox.information(
+                self,
+                "Application detection unavailable",
+                "Install kdotool on KDE/Wayland to use automatic profile switching.",
+            )
+            return
+        self._config.application_profiles[application] = self._config.active_profile_id
+        self._save()
+        self._action_status.setText(
+            f"Mapped {application} to {self._config.active_profile.name}"
+        )
+
+    def _clear_application_rules(self) -> None:
+        self._config.application_profiles.clear()
+        self._save()
+        self._action_status.setText("Application profile rules cleared")
+
+    def _monitor_active_application(self) -> None:
+        if not self._config.auto_profile_switching:
+            return
+        application = active_application()
+        profile_id = self._config.application_profiles.get(application or "")
+        if profile_id is None or profile_id == self._config.active_profile_id:
+            return
+        try:
+            profile = self._config.profile_by_id(profile_id)
+        except KeyError:
+            self._config.application_profiles.pop(application or "", None)
+            self._save()
+            return
+        self._config.active_profile_id = profile.id
+        self._save()
+        self._refresh_profile_combo()
+        self._notify("Profile switched", f"{application} → {profile.name}")
 
     @Slot()
     def detect_device(self, notify: bool = False) -> None:
@@ -1011,6 +1085,7 @@ class MainWindow(QMainWindow):
             self._notify("SmurfDeck is still running", "Use the tray menu to quit.")
             return
         self._monitor_timer.stop()
+        self._application_timer.stop()
         self._save()
         self._disconnect_all_devices()
         self._tray.hide()

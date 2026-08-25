@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 from collections.abc import Callable
@@ -43,6 +44,16 @@ def validate_working_directory(value: str) -> str:
     return str(directory)
 
 
+def parse_environment(value: str) -> dict[str, str]:
+    environment: dict[str, str] = {}
+    for assignment in filter(None, (part.strip() for part in value.split(";"))):
+        name, separator, item = assignment.partition("=")
+        if not separator or not name.replace("_", "A").isalnum() or name[0].isdigit():
+            raise ValueError("Environment variables must use NAME=value; NAME2=value")
+        environment[name] = item
+    return environment
+
+
 class DesktopActionRunner:
     """Run desktop actions without blocking Qt or invoking a shell."""
 
@@ -75,11 +86,18 @@ class DesktopActionRunner:
         return ActionResult(True, True, "Opened with the default application")
 
     def run_command(
-        self, value: str, working_directory: str, callback: ResultCallback
+        self,
+        value: str,
+        working_directory: str,
+        callback: ResultCallback,
+        timeout: int = 60,
+        environment: dict[str, str] | None = None,
     ) -> ActionResult:
         arguments = parse_command(value)
         directory = validate_working_directory(working_directory)
-        future = self._executor.submit(self._execute, arguments, directory)
+        future = self._executor.submit(
+            self._execute, arguments, directory, timeout, environment or {}
+        )
         future.add_done_callback(lambda completed: self._complete(completed, callback))
         return ActionResult(True, True, "Command running…")
 
@@ -92,14 +110,19 @@ class DesktopActionRunner:
             callback(self._result(future))
 
     @staticmethod
-    def _execute(arguments: list[str], directory: str) -> subprocess.CompletedProcess[str]:
+    def _execute(
+        arguments: list[str], directory: str, timeout: int, environment: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        command_environment = os.environ.copy()
+        command_environment.update(environment)
         return subprocess.run(  # noqa: S603
             arguments,
             cwd=directory,
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=timeout,
+            env=command_environment,
             check=False,
         )
 
@@ -107,8 +130,8 @@ class DesktopActionRunner:
     def _result(future: Future[subprocess.CompletedProcess[str]]) -> ActionResult:
         try:
             completed = future.result()
-        except subprocess.TimeoutExpired:
-            return ActionResult(True, False, "Command timed out after 60 seconds")
+        except subprocess.TimeoutExpired as error:
+            return ActionResult(True, False, f"Command timed out after {error.timeout} seconds")
         except OSError as error:
             return ActionResult(True, False, str(error))
         if completed.returncode == 0:

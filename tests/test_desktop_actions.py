@@ -6,6 +6,7 @@ import pytest
 from smurfdeck.actions.desktop import (
     DesktopActionRunner,
     parse_command,
+    parse_environment,
     validate_open_target,
     validate_working_directory,
 )
@@ -33,6 +34,12 @@ def test_working_directory_must_exist(tmp_path) -> None:
     assert validate_working_directory(str(tmp_path)) == str(tmp_path.resolve())
     with pytest.raises(ValueError, match="does not exist"):
         validate_working_directory(str(tmp_path / "missing"))
+
+
+def test_environment_parser_is_shell_free_and_validated() -> None:
+    assert parse_environment("MODE=test; COUNT=2") == {"MODE": "test", "COUNT": "2"}
+    with pytest.raises(ValueError, match="NAME=value"):
+        parse_environment("INVALID")
 
 
 def test_completed_command_reports_success_and_failure() -> None:

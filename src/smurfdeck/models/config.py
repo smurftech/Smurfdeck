@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 DEFAULT_KEY_COUNT = 15
 
 
@@ -22,8 +22,10 @@ class KeyConfig:
     icon: str = ""
     foreground_color: str = "#F2F4F7"
     background_color: str = "#101827"
+    command_timeout: int = 60
+    environment: dict[str, str] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "label": self.label,
             "action_type": self.action_type,
@@ -33,6 +35,8 @@ class KeyConfig:
             "icon": self.icon,
             "foreground_color": self.foreground_color,
             "background_color": self.background_color,
+            "command_timeout": self.command_timeout,
+            "environment": dict(sorted(self.environment.items())),
         }
 
     @classmethod
@@ -46,6 +50,13 @@ class KeyConfig:
         background = str(data.get("background_color", "#101827")).upper()
         if not all(_valid_color(color) for color in (foreground, background)):
             raise ValueError("Key colours must use #RRGGBB format")
+        timeout = int(data.get("command_timeout", 60))
+        if not 1 <= timeout <= 3600:
+            raise ValueError("Command timeout must be between 1 and 3600 seconds")
+        raw_environment = data.get("environment", {})
+        if not isinstance(raw_environment, dict):
+            raise ValueError("Command environment must be an object")
+        environment = {str(key): str(value) for key, value in raw_environment.items()}
         return cls(
             label=str(data.get("label", "")),
             action_type=str(data.get("action_type", "none")),
@@ -55,6 +66,8 @@ class KeyConfig:
             icon=str(data.get("icon", "")),
             foreground_color=foreground,
             background_color=background,
+            command_timeout=timeout,
+            environment=environment,
         )
 
 
@@ -169,6 +182,8 @@ class AppConfig:
     preferred_device_serial: str = ""
     brightness: int = 75
     close_to_tray: bool = True
+    auto_profile_switching: bool = False
+    application_profiles: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.profiles:
@@ -226,6 +241,8 @@ class AppConfig:
             "preferred_device_serial": self.preferred_device_serial,
             "brightness": self.brightness,
             "close_to_tray": self.close_to_tray,
+            "auto_profile_switching": self.auto_profile_switching,
+            "application_profiles": dict(sorted(self.application_profiles.items())),
         }
 
     @classmethod
@@ -233,7 +250,7 @@ class AppConfig:
         if not isinstance(data, dict):
             raise ValueError("Configuration root must be an object")
         version = data.get("schema_version")
-        if version not in (1, 2, 3, 4, SCHEMA_VERSION):
+        if version not in (1, 2, 3, 4, 5, SCHEMA_VERSION):
             raise ValueError(f"Unsupported configuration schema version: {version!r}")
         raw_profiles = data.get("profiles", [])
         if not isinstance(raw_profiles, list) or not raw_profiles:
@@ -241,6 +258,10 @@ class AppConfig:
         brightness = int(data.get("brightness", 75))
         if not 0 <= brightness <= 100:
             raise ValueError("Brightness must be between 0 and 100")
+        raw_rules = data.get("application_profiles", {})
+        if not isinstance(raw_rules, dict):
+            raise ValueError("Application profile rules must be an object")
+        rules = {str(app).casefold(): str(profile) for app, profile in raw_rules.items()}
         return cls(
             schema_version=SCHEMA_VERSION,
             active_profile_id=str(data.get("active_profile_id", "")),
@@ -248,6 +269,8 @@ class AppConfig:
             preferred_device_serial=str(data.get("preferred_device_serial", "")),
             brightness=brightness,
             close_to_tray=bool(data.get("close_to_tray", True)),
+            auto_profile_switching=bool(data.get("auto_profile_switching", False)),
+            application_profiles=rules,
         )
 
 
