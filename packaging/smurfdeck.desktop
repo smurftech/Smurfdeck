@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SmurfDeck
+Comment=Control and automate your desktop with Stream Deck hardware
+Exec=smurfdeck
+Icon=smurfdeck
+Terminal=false
+Categories=Utility;System;
+Keywords=Stream Deck;Automation;Control;
+StartupWMClass=smurfdeck

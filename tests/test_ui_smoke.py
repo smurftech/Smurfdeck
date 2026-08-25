@@ -124,11 +124,15 @@ def test_command_editor_reflects_selected_action(tmp_path) -> None:
         action_type="command",
         action_value="make test",
         working_directory="/tmp",
+        command_timeout=120,
+        environment={"MODE": "test"},
     )
     window._refresh_canvas()
     assert window._value_stack.currentWidget().layout() is not None
     assert window._command_edit.text() == "make test"
     assert window._working_directory_edit.text() == "/tmp"
+    assert window._timeout_combo.currentData() == 120
+    assert window._environment_edit.text() == "MODE=test"
     assert window._key_buttons[0].property("configured") is True
     window.close()
     app.processEvents()
@@ -241,3 +245,30 @@ def test_device_preference_brightness_and_selection_are_restored(
     window.close()
     app.processEvents()
     assert first.closed and second.closed
+
+
+def test_application_rule_switches_profile_and_ignores_unknown_app(
+    tmp_path, monkeypatch
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    window._application_timer.stop()
+    desktop_id = window.config.active_profile_id
+    development = window.config.add_profile("Development")
+    window.config.active_profile_id = desktop_id
+    window.config.application_profiles["org.kde.konsole"] = development.id
+    window.config.auto_profile_switching = True
+    monkeypatch.setattr(
+        "smurfdeck.ui.main_window.active_application",
+        lambda: "org.kde.konsole",
+    )
+    window._monitor_active_application()
+    assert window.config.active_profile_id == development.id
+    monkeypatch.setattr(
+        "smurfdeck.ui.main_window.active_application", lambda: "unknown"
+    )
+    window._monitor_active_application()
+    assert window.config.active_profile_id == development.id
+    window._quit_requested = True
+    window.close()
+    app.processEvents()

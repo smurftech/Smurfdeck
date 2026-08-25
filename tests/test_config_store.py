@@ -31,5 +31,5 @@ def test_unknown_schema_is_recovered_safely(tmp_path) -> None:
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"schema_version": 99}), encoding="utf-8")
     store = ConfigStore(path)
-    assert store.load().schema_version == 5
+    assert store.load().schema_version == 6
     assert store.recovery_path is not None

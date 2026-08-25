@@ -20,7 +20,12 @@ class DesktopRunner(Protocol):
     def open_target(self, value: str) -> ActionResult: ...
 
     def run_command(
-        self, value: str, working_directory: str, callback: Callable[[ActionResult], None]
+        self,
+        value: str,
+        working_directory: str,
+        callback: Callable[[ActionResult], None],
+        timeout: int = 60,
+        environment: dict[str, str] | None = None,
     ) -> ActionResult: ...
 
     def close(self) -> None: ...
@@ -75,6 +80,8 @@ class ActionEngine:
                     key.action_value,
                     key.working_directory,
                     lambda result: self._report(key_index, result),
+                    key.command_timeout,
+                    key.environment,
                 )
             elif key.action_type == "page" and self._navigate is not None:
                 return ActionResult(True, True, self._navigate(key.action_value))

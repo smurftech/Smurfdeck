@@ -14,11 +14,14 @@
 - Navigate to the next, previous, or a specific page from a key.
 - Show running, success, exit-code, and timeout feedback in the status bar.
 
-## Next action refinements
+## Action refinements — completed
 
 - Show richer running, success, and failure feedback directly on physical and
   on-screen keys.
 - Add configurable command timeouts and optional environment variables.
+
+Direct physical/on-screen feedback shipped in Phase 4; advanced command options
+ship in Phase 6.
 
 ## Editor and visual fidelity — completed and physically verified
 
@@ -61,6 +64,13 @@ removed, with its useful runtime feedback retained in the status bar.
 - Multi-device discovery, selection, and preferred-device restoration.
 - Safe explicit-quit cleanup for every opened device.
 
-## Later automation
+## Phase 6 automation and release readiness
 
-- Optional application-aware profile switching.
+- Configurable command timeouts and shell-free environment variables.
+- Optional KDE/Wayland application-aware profile switching.
+- Profile mapping, global enable/disable control, notifications, and stale-rule recovery.
+- Linux application-menu launcher and canonical installed icon.
+- Configuration schema 6 migration and final release documentation.
+
+The original phased implementation roadmap is complete after physical acceptance
+of Phase 6. Further work should use normal feature releases and issue-driven milestones.

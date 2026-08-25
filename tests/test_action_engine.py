@@ -33,8 +33,10 @@ class FakeDesktop:
         self.calls.append(("open", value))
         return ActionResult(True, True, "Opened")
 
-    def run_command(self, value, working_directory, callback) -> ActionResult:
-        self.calls.append(("command", value, working_directory))
+    def run_command(
+        self, value, working_directory, callback, timeout=60, environment=None
+    ) -> ActionResult:
+        self.calls.append(("command", value, working_directory, timeout, environment or {}))
         self.callback = callback
         return ActionResult(True, True, "Command running…")
 
@@ -97,7 +99,11 @@ def test_desktop_and_page_actions_are_dispatched() -> None:
     assert engine.handle_key(1, open_url, True).success
     engine.handle_key(1, KeyConfig(), False)
     command = KeyConfig(
-        action_type="command", action_value="echo hello", working_directory="/tmp"
+        action_type="command",
+        action_value="echo hello",
+        working_directory="/tmp",
+        command_timeout=120,
+        environment={"MODE": "test"},
     )
     assert "running" in engine.handle_key(2, command, True).message
     desktop.callback(ActionResult(True, True, "Command completed"))
@@ -106,7 +112,7 @@ def test_desktop_and_page_actions_are_dispatched() -> None:
     assert desktop.calls == [
         ("launch", "firefox"),
         ("open", "https://example.com"),
-        ("command", "echo hello", "/tmp"),
+        ("command", "echo hello", "/tmp", 120, {"MODE": "test"}),
     ]
     assert navigated == ["next"]
     assert feedback[0][0] == 2
