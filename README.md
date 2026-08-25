@@ -70,8 +70,20 @@ write cannot corrupt the active file. If the file is invalid or uses an unknown
 schema, SmurfDeck preserves a timestamped copy and starts with safe defaults.
 
 The editor protects the final profile and the final page in each profile from
-deletion. Configuration schema 3 adds command working directories while
-transparently migrating schema 1 and 2 files.
+deletion. Configuration schema 5 stores visual-key settings and desktop/device
+preferences while transparently migrating schema 1–4 files.
+
+## Desktop and device lifecycle
+
+SmurfDeck monitors connected hardware and automatically reconnects after a device
+is unplugged and returned. The header provides device selection when multiple
+Stream Decks are available and restores the preferred device and brightness on
+the next launch.
+
+When a system tray is available, closing the window keeps SmurfDeck running in
+the background by default. Use the tray menu to show the window, detect devices,
+toggle close-to-tray, or quit fully. Disconnect and reconnect notifications are
+sent through the tray integration.
 
 ## Input actions
 

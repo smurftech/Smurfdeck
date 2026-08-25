@@ -53,10 +53,14 @@ removed, with its useful runtime feedback retained in the status bar.
 - Preview key visuals on screen and on the connected device.
 - Show running, success, and failure feedback directly on physical and on-screen keys.
 
-## Desktop integration
+## Phase 5 desktop integration
 
-- Device hot-plug and automatic reconnection.
-- System tray operation and background mode.
-- Brightness control and restoration.
-- Multi-device selection.
+- Device hot-plug monitoring and automatic reconnection.
+- System tray operation, notifications, and background mode.
+- Persisted brightness control and restoration.
+- Multi-device discovery, selection, and preferred-device restoration.
+- Safe explicit-quit cleanup for every opened device.
+
+## Later automation
+
 - Optional application-aware profile switching.

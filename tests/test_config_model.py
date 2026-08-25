@@ -46,7 +46,7 @@ def test_version_one_configuration_migrates_with_press_trigger() -> None:
     legacy["schema_version"] = 1
     legacy["profiles"][0]["pages"][0]["keys"]["0"].pop("trigger")
     restored = AppConfig.from_dict(legacy)
-    assert restored.schema_version == 4
+    assert restored.schema_version == 5
     assert restored.active_profile.active_page.key(0).working_directory == ""
     assert restored.active_profile.active_page.key(0).trigger == "press"
 
@@ -71,4 +71,21 @@ def test_key_visuals_reject_invalid_colours() -> None:
         "0": {"background_color": "blue"}
     }
     with pytest.raises(ValueError, match="colours"):
+        AppConfig.from_dict(data)
+
+
+def test_desktop_device_preferences_round_trip() -> None:
+    config = AppConfig(
+        preferred_device_serial="ABC-123", brightness=50, close_to_tray=False
+    )
+    restored = AppConfig.from_dict(config.to_dict())
+    assert restored.preferred_device_serial == "ABC-123"
+    assert restored.brightness == 50
+    assert restored.close_to_tray is False
+
+
+def test_brightness_rejects_out_of_range_values() -> None:
+    data = AppConfig().to_dict()
+    data["brightness"] = 101
+    with pytest.raises(ValueError, match="Brightness"):
         AppConfig.from_dict(data)

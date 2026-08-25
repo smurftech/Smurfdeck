@@ -1,3 +1,5 @@
+import pytest
+
 from smurfdeck.devices.base import DeckKeyEvent
 from smurfdeck.devices.streamdeck import StreamDeckDevice
 
@@ -10,6 +12,8 @@ class FakeDeck:
         self.images = {}
         self.closed = False
         self.reset_error: Exception | None = None
+        self.brightness = 0
+        self.is_connected = True
 
     def key_layout(self) -> tuple[int, int]:
         # Upstream API order is (rows, columns).
@@ -29,6 +33,12 @@ class FakeDeck:
 
     def set_key_callback(self, callback: object) -> None:
         self.callback = callback
+
+    def connected(self) -> bool:
+        return self.is_connected
+
+    def set_brightness(self, percent: int) -> None:
+        self.brightness = percent
 
     def reset(self) -> None:
         if self.reset_error is not None:
@@ -63,3 +73,13 @@ def test_close_releases_device_when_optional_reset_fails() -> None:
     deck.reset_error = OSError("feature report failed")
     StreamDeckDevice(deck).close()
     assert deck.closed
+
+
+def test_adapter_reports_connection_and_controls_brightness() -> None:
+    deck = FakeDeck()
+    device = StreamDeckDevice(deck)
+    assert device.connected is True
+    device.set_brightness(75)
+    assert deck.brightness == 75
+    with pytest.raises(ValueError, match="Brightness"):
+        device.set_brightness(101)
