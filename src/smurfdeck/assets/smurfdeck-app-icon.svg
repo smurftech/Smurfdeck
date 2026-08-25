@@ -1,53 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">SmurfDeck app icon</title>
-  <desc id="desc">A blue control-core microchip inside a technical octagonal badge</desc>
+  <desc id="desc">Three illuminated control sliders on a dark square panel</desc>
   <defs>
-    <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1">
-      <stop stop-color="#43556B"/>
-      <stop offset="0.18" stop-color="#E6F0FF"/>
-      <stop offset="0.32" stop-color="#53677D"/>
-      <stop offset="1" stop-color="#1E2A3A"/>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#152238"/><stop offset="1" stop-color="#0C111A"/>
     </linearGradient>
-    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
-      <stop stop-color="#4FC3FF"/>
-      <stop offset="0.45" stop-color="#0D6EFD"/>
-      <stop offset="1" stop-color="#0754C8"/>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#0754C8"/><stop offset="0.55" stop-color="#0D6EFD"/><stop offset="1" stop-color="#4FC3FF"/>
     </linearGradient>
-    <radialGradient id="surface" cx="50%" cy="40%" r="70%">
-      <stop stop-color="#152338"/>
-      <stop offset="1" stop-color="#080D14"/>
-    </radialGradient>
     <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="7" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      <feGaussianBlur stdDeviation="7" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
-
-  <path d="M148 22h216l126 126v216L364 490H148L22 364V148z" fill="#070B11" stroke="url(#frame)" stroke-width="12"/>
-  <path d="M160 48h192l112 112v192L352 464H160L48 352V160z" fill="url(#surface)" stroke="#0D6EFD" stroke-width="5"/>
-  <path d="M174 72h164l101 101" fill="none" stroke="#4FC3FF" stroke-width="5"/>
-  <path d="M439 339L339 439H174" fill="none" stroke="#0754C8" stroke-width="5"/>
-  <path d="M112 150l38-38h78M362 112h38M400 112l28 28M112 362l38 38h58M362 400h38" fill="none" stroke="#1E2A3A" stroke-width="8" stroke-linecap="square"/>
-
-  <g fill="none" stroke="#0D6EFD" stroke-width="7" stroke-linecap="round">
-    <path d="M174 204h-42m42 34h-58m58 34h-58m58 34h-42"/>
-    <path d="M338 204h42m-42 34h58m-58 34h58m-58 34h42"/>
-    <path d="M204 174v-42m34 42v-58m34 58v-58m34 58v-42"/>
-    <path d="M204 338v42m34-42v58m34-58v58m34-58v42"/>
+  <rect x="24" y="24" width="464" height="464" rx="72" fill="#080D14" stroke="#1E2A3A" stroke-width="12"/>
+  <rect x="52" y="52" width="408" height="408" rx="52" fill="url(#panel)" stroke="#0D6EFD" stroke-width="5"/>
+  <path d="M78 104h106M328 104h106" stroke="#1E2A3A" stroke-width="5"/>
+  <path d="M78 104h62" stroke="#4FC3FF" stroke-width="5"/><circle cx="156" cy="104" r="6" fill="#4FC3FF"/>
+  <g fill="none" stroke-linecap="round">
+    <path d="M130 194h252" stroke="#26384E" stroke-width="18"/><path d="M130 194h104" stroke="url(#blue)" stroke-width="18"/>
+    <path d="M130 256h252" stroke="#26384E" stroke-width="18"/><path d="M130 256h176" stroke="url(#blue)" stroke-width="18"/>
+    <path d="M130 318h252" stroke="#26384E" stroke-width="18"/><path d="M130 318h66" stroke="url(#blue)" stroke-width="18"/>
   </g>
-  <g fill="#4FC3FF" filter="url(#glow)">
-    <circle cx="116" cy="238" r="6"/><circle cx="396" cy="272" r="6"/>
-    <circle cx="238" cy="116" r="6"/><circle cx="272" cy="396" r="6"/>
+  <g fill="#0C111A" stroke="#4FC3FF" stroke-width="10" filter="url(#glow)">
+    <circle cx="234" cy="194" r="24"/><circle cx="306" cy="256" r="24"/><circle cx="196" cy="318" r="24"/>
   </g>
-
-  <rect x="174" y="174" width="164" height="164" rx="20" fill="#09111D" stroke="url(#blue)" stroke-width="10"/>
-  <path d="M206 206h100v100H206z" fill="#0E2038" stroke="#4FC3FF" stroke-width="7"/>
-  <path d="M230 230h52v52h-52z" fill="#0D6EFD" stroke="#E6F0FF" stroke-width="6"/>
-  <path d="M246 246h20v20h-20z" fill="#07101C"/>
-  <path d="M190 190h28M294 190h28M190 322h28M294 322h28" stroke="#4FC3FF" stroke-width="5"/>
-
-  <g fill="#4FC3FF">
-    <circle cx="90" cy="174" r="5"/><circle cx="422" cy="338" r="5"/>
-  </g>
-  <path d="M76 194v-34l84-84h48M436 318v34l-84 84h-48" fill="none" stroke="#0D6EFD" stroke-width="4"/>
+  <g fill="#E6F0FF"><circle cx="234" cy="194" r="7"/><circle cx="306" cy="256" r="7"/><circle cx="196" cy="318" r="7"/></g>
+  <path d="M112 386h288" stroke="#1E2A3A" stroke-width="6" stroke-linecap="round"/>
+  <path d="M112 386h112" stroke="#0D6EFD" stroke-width="6" stroke-linecap="round"/><circle cx="240" cy="386" r="6" fill="#4FC3FF"/>
 </svg>
