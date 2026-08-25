@@ -147,3 +147,17 @@ def test_action_library_selects_the_shared_key_editor(tmp_path) -> None:
     assert window._value_stack.currentWidget().layout() is not None
     window.close()
     app.processEvents()
+
+
+def test_phase_three_branding_is_applied(tmp_path) -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(ConfigStore(tmp_path / "config.json"))
+    product_name = window.findChild(type(window._device_status), "productName")
+    descriptor = window.findChild(type(window._device_status), "productDescriptor")
+    assert product_name is not None and "Smurf" in product_name.text()
+    assert descriptor is not None and descriptor.text() == "// CONTROL SYSTEM"
+    assert window._apply_key_button.objectName() == "primaryButton"
+    assert "#0D6EFD" in window.styleSheet()
+    assert window._device_status.property("state") == "disconnected"
+    window.close()
+    app.processEvents()

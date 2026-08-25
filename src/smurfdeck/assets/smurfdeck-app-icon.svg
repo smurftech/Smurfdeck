@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">SmurfDeck app icon</title>
+  <desc id="desc">Three illuminated control sliders on a dark square panel</desc>
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#152238"/><stop offset="1" stop-color="#0C111A"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#0754C8"/><stop offset="0.55" stop-color="#0D6EFD"/><stop offset="1" stop-color="#4FC3FF"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="7" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="72" fill="#080D14" stroke="#1E2A3A" stroke-width="12"/>
+  <rect x="52" y="52" width="408" height="408" rx="52" fill="url(#panel)" stroke="#0D6EFD" stroke-width="5"/>
+  <path d="M78 104h106M328 104h106" stroke="#1E2A3A" stroke-width="5"/>
+  <path d="M78 104h62" stroke="#4FC3FF" stroke-width="5"/><circle cx="156" cy="104" r="6" fill="#4FC3FF"/>
+  <g fill="none" stroke-linecap="round">
+    <path d="M130 194h252" stroke="#26384E" stroke-width="18"/><path d="M130 194h104" stroke="url(#blue)" stroke-width="18"/>
+    <path d="M130 256h252" stroke="#26384E" stroke-width="18"/><path d="M130 256h176" stroke="url(#blue)" stroke-width="18"/>
+    <path d="M130 318h252" stroke="#26384E" stroke-width="18"/><path d="M130 318h66" stroke="url(#blue)" stroke-width="18"/>
+  </g>
+  <g fill="#0C111A" stroke="#4FC3FF" stroke-width="10" filter="url(#glow)">
+    <circle cx="234" cy="194" r="24"/><circle cx="306" cy="256" r="24"/><circle cx="196" cy="318" r="24"/>
+  </g>
+  <g fill="#E6F0FF"><circle cx="234" cy="194" r="7"/><circle cx="306" cy="256" r="7"/><circle cx="196" cy="318" r="7"/></g>
+  <path d="M112 386h288" stroke="#1E2A3A" stroke-width="6" stroke-linecap="round"/>
+  <path d="M112 386h112" stroke="#0D6EFD" stroke-width="6" stroke-linecap="round"/><circle cx="240" cy="386" r="6" fill="#4FC3FF"/>
+</svg>
