@@ -9,7 +9,7 @@ class ActionListWidget(QListWidget):
     def mimeData(self, items: list[QListWidgetItem]) -> QMimeData:
         mime = QMimeData()
         if items:
-            mime.setText(items[0].text())
+            mime.setText(str(items[0].data(Qt.ItemDataRole.UserRole) or items[0].text()))
         return mime
 
 
@@ -55,7 +55,11 @@ class KeyButton(QToolButton):
     def dropEvent(self, event: QDropEvent) -> None:
         mime = event.mimeData()
         if mime.hasFormat("application/x-smurfdeck-key"):
-            source = int(bytes(mime.data("application/x-smurfdeck-key")).decode())
+            try:
+                source = int(bytes(mime.data("application/x-smurfdeck-key")).decode())
+            except (ValueError, UnicodeDecodeError):
+                event.ignore()
+                return
             copy = bool(event.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)
             self.key_dropped.emit(source, self.index, copy)
         elif mime.hasText():

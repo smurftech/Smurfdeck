@@ -132,7 +132,7 @@ class DesktopActionRunner:
             completed = future.result()
         except subprocess.TimeoutExpired as error:
             return ActionResult(True, False, f"Command timed out after {error.timeout} seconds")
-        except OSError as error:
+        except (OSError, ValueError, UnicodeError) as error:
             return ActionResult(True, False, str(error))
         if completed.returncode == 0:
             return ActionResult(True, True, "Command completed")

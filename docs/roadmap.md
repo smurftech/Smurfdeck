@@ -74,3 +74,16 @@ removed, with its useful runtime feedback retained in the status bar.
 
 The original phased implementation roadmap is complete after physical acceptance
 of Phase 6. Further work should use normal feature releases and issue-driven milestones.
+
+## Core review follow-up — September 2026
+
+The original phases remain historical milestones. The
+[core-function review](core-review-2026-09-24.md) compares the implementation with
+Elgato Windows and records further gaps. The review branch adds 50 shortcuts,
+image/GIF keys, basic multi-actions and targeted editing/runtime fixes. These
+additions have automated/offscreen verification, not physical acceptance.
+
+Next priorities: physical acceptance, unfinished-edit protection, portable
+profile/image backups, profile automation refinements, then folders/pinned keys
+and richer actions. Keep the working public Smurftech website checkpoint before
+Arch package distribution.

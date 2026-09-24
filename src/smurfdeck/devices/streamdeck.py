@@ -23,6 +23,7 @@ class StreamDeckDevice:
         self._deck = deck
         self._sink: DeckEventSink | None = None
         self._lock = threading.RLock()
+        self._info: DeckInfo | None = None
 
     @classmethod
     def discover(cls) -> Sequence[StreamDeckDevice]:
@@ -40,15 +41,19 @@ class StreamDeckDevice:
 
     @property
     def info(self) -> DeckInfo:
+        if self._info is not None:
+            return self._info
+        # Cache immutable metadata: animation must not query USB serial/firmware per frame.
         # python-elgato-streamdeck exposes layouts as (rows, columns).
         rows, columns = self._deck.key_layout()
         key_width, key_height = self._deck.key_image_format()["size"]
-        return DeckInfo(
+        self._info = DeckInfo(
             model=self._deck.deck_type(),
             serial=self._safe_string("get_serial_number"),
             firmware=self._safe_string("get_firmware_version"),
             geometry=DeckGeometry(columns, rows, key_width, key_height),
         )
+        return self._info
 
     def _safe_string(self, method_name: str) -> str | None:
         try:
@@ -88,7 +93,9 @@ class StreamDeckDevice:
         image = labeled_key_image(self._deck, label)
         self._deck.set_key_image(key, image)
 
-    def render_key_config(self, key: int, config: KeyConfig, state: str = "") -> None:
+    def render_key_config(
+        self, key: int, config: KeyConfig, state: str = "", elapsed_ms: int = 0
+    ) -> None:
         image = labeled_key_image(
             self._deck,
             config.label,
@@ -96,6 +103,8 @@ class StreamDeckDevice:
             foreground=config.foreground_color,
             background=config.background_color,
             state=state,
+            image_path=config.image_path,
+            elapsed_ms=elapsed_ms,
         )
         self._deck.set_key_image(key, image)
 

@@ -36,6 +36,16 @@ class ConfigStore:
 
     def save(self, config: AppConfig) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path.exists():
+            try:
+                previous = json.loads(self.path.read_text(encoding="utf-8"))
+                version = previous.get("schema_version")
+                if isinstance(version, int) and version < config.schema_version:
+                    backup = self.path.with_name(f"config.schema-{version}.backup.json")
+                    if not backup.exists():
+                        shutil.copy2(self.path, backup)
+            except (ValueError, AttributeError):
+                pass  # Invalid configurations are preserved by load().
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=".config-", suffix=".tmp", dir=self.path.parent
         )
