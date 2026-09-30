@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 DEFAULT_KEY_COUNT = 15
 
 
@@ -20,6 +20,7 @@ class KeyConfig:
     trigger: str = "press"
     working_directory: str = ""
     icon: str = ""
+    image_path: str = ""
     foreground_color: str = "#F2F4F7"
     background_color: str = "#101827"
     command_timeout: int = 60
@@ -33,6 +34,7 @@ class KeyConfig:
             "trigger": self.trigger,
             "working_directory": self.working_directory,
             "icon": self.icon,
+            "image_path": self.image_path,
             "foreground_color": self.foreground_color,
             "background_color": self.background_color,
             "command_timeout": self.command_timeout,
@@ -64,6 +66,7 @@ class KeyConfig:
             trigger=trigger,
             working_directory=str(data.get("working_directory", "")),
             icon=str(data.get("icon", "")),
+            image_path=str(data.get("image_path", "")),
             foreground_color=foreground,
             background_color=background,
             command_timeout=timeout,
@@ -215,13 +218,23 @@ class AppConfig:
             PageConfig(
                 name=page.name,
                 keys={
-                    index: KeyConfig.from_dict(key.to_dict())
-                    for index, key in page.keys.items()
+                    index: KeyConfig.from_dict(key.to_dict()) for index, key in page.keys.items()
                 },
             )
             for page in source.pages
         ]
-        duplicate = ProfileConfig(name=f"{source.name} copy", pages=pages)
+        page_ids = {old.id: new.id for old, new in zip(source.pages, pages, strict=True)}
+        for page in pages:
+            for key in page.keys.values():
+                if key.action_type == "page" and key.action_value.startswith("page:"):
+                    old_id = key.action_value.removeprefix("page:")
+                    if old_id in page_ids:
+                        key.action_value = f"page:{page_ids[old_id]}"
+        duplicate = ProfileConfig(
+            name=f"{source.name} copy",
+            pages=pages,
+            active_page_id=page_ids[source.active_page_id],
+        )
         self.profiles.append(duplicate)
         self.active_profile_id = duplicate.id
         return duplicate
@@ -230,6 +243,9 @@ class AppConfig:
         if len(self.profiles) == 1:
             raise ValueError("SmurfDeck must contain at least one profile")
         self.profiles = [profile for profile in self.profiles if profile.id != profile_id]
+        self.application_profiles = {
+            app: target for app, target in self.application_profiles.items() if target != profile_id
+        }
         if self.active_profile_id == profile_id:
             self.active_profile_id = self.profiles[0].id
 
@@ -250,7 +266,7 @@ class AppConfig:
         if not isinstance(data, dict):
             raise ValueError("Configuration root must be an object")
         version = data.get("schema_version")
-        if version not in (1, 2, 3, 4, 5, SCHEMA_VERSION):
+        if version not in (1, 2, 3, 4, 5, 6, SCHEMA_VERSION):
             raise ValueError(f"Unsupported configuration schema version: {version!r}")
         raw_profiles = data.get("profiles", [])
         if not isinstance(raw_profiles, list) or not raw_profiles:
@@ -275,6 +291,8 @@ class AppConfig:
 
 
 def _valid_color(value: str) -> bool:
-    return len(value) == 7 and value.startswith("#") and all(
-        character in "0123456789ABCDEF" for character in value[1:]
+    return (
+        len(value) == 7
+        and value.startswith("#")
+        and all(character in "0123456789ABCDEF" for character in value[1:])
     )

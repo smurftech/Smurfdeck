@@ -63,16 +63,18 @@ the planned Balanced-interface fidelity pass.
 
 ## Configuration
 
-Profiles, pages, active selections, and key drafts are saved automatically to
+Profile/page management is saved immediately; key edits are saved with **Apply to key** to
 `$XDG_CONFIG_HOME/smurfdeck/config.json` (normally
 `~/.config/smurfdeck/config.json`). Saves use an atomic replacement so a partial
 write cannot corrupt the active file. If the file is invalid or uses an unknown
 schema, SmurfDeck preserves a timestamped copy and starts with safe defaults.
 
 The editor protects the final profile and the final page in each profile from
-deletion. Configuration schema 6 stores visual-key settings, desktop/device
-preferences, advanced command options, and application-profile rules while
-transparently migrating schema 1–5 files.
+deletion. Configuration schema 7 adds custom image paths to the existing visual,
+device and application-profile settings and migrates schema 1–6 files. Before
+its first upgrade write, SmurfDeck retains `config.schema-N.backup.json`.
+For rollback, quit SmurfDeck and restore that copy before opening an older build.
+Back up the entire configuration directory to include custom images.
 
 ## Desktop and device lifecycle
 
@@ -123,8 +125,9 @@ Stream Deck are refreshed together.
 ## Application-aware profiles
 
 On KDE/Wayland, optional profile switching uses `kdotool` to identify the active
-application. From the settings menu, map the active application to the current
-profile and then enable automatic profile switching. Missing or unavailable
+application. Choose **Map active application to profile**, then focus the target
+application within four seconds. Enable automatic profile switching when ready.
+SmurfDeck avoids switching while its editor window is active. Missing or unavailable
 `kdotool` disables detection safely without affecting normal operation.
 
 ## Desktop launcher
@@ -146,3 +149,30 @@ newer device support without tracking a moving branch.
 
 SmurfDeck contains original application code and uses third-party libraries only
 through their published APIs. It is licensed under the MIT License.
+
+## Core review and new editing tools
+
+See [the core-function review](docs/core-review-2026-09-24.md) for the comparison
+with Elgato Windows, fixes, test evidence and remaining gaps.
+
+- **50 shortcut presets:** filter Desktop, Dolphin, Konsole or Plasma, search a
+  name/chord, and drag onto a key. Click-and-Apply also works. See the
+  [complete shortcut catalogue](docs/shortcuts.md). Terminal clipboard buttons
+  are labelled separately and use Ctrl+Shift+C/V.
+- **Images and animation:** choose **Image…**, select a PNG/JPEG/BMP/GIF/WebP,
+  then Apply. Clear the label for an image-only key. Images are copied into
+  `images/` beside the config. GIF/WebP loop at up to 10 fps; limits are 10 MiB,
+  4 million pixels and 120 frames. The × control removes the image assignment.
+- **Multi-action:** choose Multi-action → Edit steps, add and reorder steps,
+  save the dialog, then Apply. Supports shortcuts, media, app launches, open
+  targets and delays. One sequence runs at a time and stops on failure. Use
+  **Stop multi-action** to cancel future steps; changing page/profile/device
+  also cancels. Already launched apps remain open. This version has no nested
+  sequences, toggles, loops or command-wait steps.
+- **Editing:** right-click a key to Copy, Paste or Clear. Ctrl-drag copies;
+  ordinary drag swaps keys. Undo/redo belongs to the current page. The page
+  toolbar provides previous/next/add; Duplicate page is in Settings.
+
+Hardware acceptance of these additions is still required; automated tests use
+fake devices/input and offscreen Qt. Complete pending key edits before switching
+pages or profiles; Apply is explicit.

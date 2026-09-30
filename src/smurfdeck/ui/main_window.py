@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from contextlib import suppress
 from copy import deepcopy
+from pathlib import Path
+from time import monotonic
 
 from PySide6.QtCore import QObject, QSignalBlocker, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QIcon, QResizeEvent
+from PySide6.QtGui import QAction, QCloseEvent, QIcon, QImage, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -37,6 +41,8 @@ from smurfdeck.actions.desktop import (
     validate_working_directory,
 )
 from smurfdeck.actions.engine import ActionEngine
+from smurfdeck.actions.presets import PRESETS_BY_ID, SHORTCUT_PRESETS
+from smurfdeck.actions.sequences import parse_sequence
 from smurfdeck.actions.shortcuts import (
     MEDIA_ACTIONS,
     media_key,
@@ -50,7 +56,10 @@ from smurfdeck.devices.streamdeck import StreamDeckDevice
 from smurfdeck.input.uinput import LazyUInputEmitter
 from smurfdeck.models.config import AppConfig, KeyConfig, PageConfig, ProfileConfig
 from smurfdeck.persistence.config_store import ConfigStore
+from smurfdeck.rendering.images import import_image, load_animation
+from smurfdeck.rendering.keys import key_preview
 from smurfdeck.ui.key_button import ActionListWidget, KeyButton
+from smurfdeck.ui.sequence_editor import SequenceEditor, SequenceRunner
 
 ACTION_LABELS = {
     "none": "No action",
@@ -60,6 +69,7 @@ ACTION_LABELS = {
     "open": "Open file or folder",
     "command": "Run command",
     "page": "Switch page",
+    "sequence": "Multi-action",
 }
 ICON_PRESETS = (
     ("No icon", ""),
@@ -101,16 +111,14 @@ class ResponsiveDeckCanvas(QWidget):
         self.grid = QGridLayout(self.frame)
         self.grid.setContentsMargins(18, 18, 18, 18)
         self.grid.setSpacing(12)
-        self.setMinimumHeight(300)
+        self.setMinimumHeight(180)
         self.setMaximumHeight(480)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
     def sizeHint(self) -> QSize:
         return QSize(800, 460)
 
-    def configure(
-        self, columns: int, rows: int, buttons: list[QToolButton]
-    ) -> None:
+    def configure(self, columns: int, rows: int, buttons: list[QToolButton]) -> None:
         self._columns, self._rows = columns, rows
         self._buttons = buttons
         self._reflow()
@@ -132,7 +140,7 @@ class ResponsiveDeckCanvas(QWidget):
                 150,
             )
         )
-        key_size = max(key_size, 58)
+        key_size = max(key_size, 24)
         frame_width = 2 * margin + self._columns * key_size + gap * (self._columns - 1)
         frame_height = 2 * margin + self._rows * key_size + gap * (self._rows - 1)
         self.frame.setGeometry(
@@ -146,6 +154,7 @@ class ResponsiveDeckCanvas(QWidget):
             self.surface_width_changed.emit(frame_width)
         for button in self._buttons:
             button.setFixedSize(key_size, key_size)
+            button.setIconSize(QSize(max(24, key_size - 14), max(24, key_size - 14)))
 
 
 class MainWindow(QMainWindow):
@@ -164,6 +173,14 @@ class MainWindow(QMainWindow):
         self._key_buttons: list[QToolButton] = []
         self._undo_stack: list[dict[int, KeyConfig]] = []
         self._redo_stack: list[dict[int, KeyConfig]] = []
+        self._history_page_id = ""
+        self._histories = {}
+        self._key_clipboard = None
+        self._image_path = ""
+        self._sequence_value = ""
+        self._animation_start = monotonic()
+        self._animated_keys = {}
+        self._last_frames = {}
         self._events = HardwareEvents(self)
         self._events.key_changed.connect(self._on_key_event)
         self._events.action_finished.connect(self._on_action_finished)
@@ -172,11 +189,21 @@ class MainWindow(QMainWindow):
             DesktopActionRunner(),
             self._navigate_page,
             self._events.action_finished.emit,
+            lambda index, value: self._sequence_runner.start(index, value),
         )
+
+        self._sequence_runner = SequenceRunner(
+            self._action_engine, self._events.action_finished.emit, self
+        )
+        self._animation_timer = QTimer(self)
+        self._animation_timer.setInterval(100)
+        self._animation_timer.timeout.connect(self._animate_keys)
 
         self._profile_combo, self._page_combo = QComboBox(), QComboBox()
         self._profile_combo.setObjectName("primarySelector")
         self._page_combo.setObjectName("secondarySelector")
+        self._profile_combo.setToolTip("Active profile")
+        self._page_combo.setToolTip("Active page")
         self._profile_combo.setMinimumWidth(170)
         self._page_combo.setMinimumWidth(170)
         self._profile_combo.setMaximumWidth(260)
@@ -203,6 +230,8 @@ class MainWindow(QMainWindow):
 
         self._action_list = ActionListWidget()
         self._action_list.setDragEnabled(True)
+        self._action_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._action_list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._populate_action_library()
         self._action_list.itemClicked.connect(self._on_action_activated)
         self._deck_canvas = ResponsiveDeckCanvas()
@@ -234,6 +263,15 @@ class MainWindow(QMainWindow):
         self._trigger_combo.addItem("On key press", "press")
         self._trigger_combo.addItem("On key release", "release")
         self._trigger_combo.addItem("On press and release", "both")
+        self._image_button = QPushButton("Image…")
+        self._image_button.setToolTip("Choose a custom image or animated GIF / WebP")
+        self._image_button.clicked.connect(self._choose_image)
+        self._remove_image_button = QToolButton()
+        self._remove_image_button.setText("×")
+        self._remove_image_button.setToolTip("Remove custom image (then Apply to key)")
+        self._remove_image_button.clicked.connect(self._remove_image)
+        self._sequence_button = QPushButton("Edit steps…")
+        self._sequence_button.clicked.connect(self._edit_sequence)
         self._icon_combo = QComboBox()
         self._background_combo = QComboBox()
         self._foreground_combo = QComboBox()
@@ -288,8 +326,7 @@ class MainWindow(QMainWindow):
         brand_layout.setContentsMargins(0, 0, 20, 0)
         brand_layout.setSpacing(0)
         product_name = QLabel(
-            '<span style="color:#F2F4F7">Smurf</span>'
-            '<span style="color:#0D6EFD">Deck</span>'
+            '<span style="color:#F2F4F7">Smurf</span><span style="color:#0D6EFD">Deck</span>'
         )
         product_name.setObjectName("productName")
         product_name.setTextFormat(Qt.TextFormat.RichText)
@@ -316,11 +353,23 @@ class MainWindow(QMainWindow):
         left_layout.setContentsMargins(14, 14, 14, 14)
         left_layout.addWidget(self._heading("Action library"))
         search = QLineEdit()
-        search.setPlaceholderText("Find an action…")
+        search.setPlaceholderText("Find action or shortcut…")
+        search.setClearButtonEnabled(True)
+        self._action_search = search
         search.textChanged.connect(self._filter_actions)
         left_layout.addWidget(search)
+        self._category_filter = QComboBox()
+        for category in ("All actions", "Base actions", "Desktop", "Dolphin", "Konsole", "Plasma"):
+            self._category_filter.addItem(category)
+        self._category_filter.currentTextChanged.connect(
+            lambda _text: self._filter_actions(self._action_search.text())
+        )
+        left_layout.addWidget(self._category_filter)
         left_layout.addWidget(self._action_list, 1)
-        help_text = QLabel("Select an action, configure it, then choose Apply to key.")
+        help_text = QLabel(
+            "50 ready-made shortcuts. Drag one onto a key, or select it and Apply. "
+            "Ctrl-drag copies a key."
+        )
         help_text.setWordWrap(True)
         help_text.setObjectName("mutedText")
         left_layout.addWidget(help_text)
@@ -331,11 +380,32 @@ class MainWindow(QMainWindow):
         canvas.setObjectName("workspace")
         canvas_layout = QVBoxLayout(canvas)
         canvas_layout.setContentsMargins(22, 12, 22, 18)
+        page_tools = QHBoxLayout()
+        page_tools.addWidget(
+            self._small_button("‹", lambda: self._navigate_page("previous"), "Previous page")
+        )
+        self._page_position = QLabel()
+        page_tools.addWidget(self._page_position)
+        page_tools.addWidget(
+            self._small_button("›", lambda: self._navigate_page("next"), "Next page")
+        )
+        page_tools.addWidget(self._small_button("+", self._add_page, "Add page"))
+        page_tools.addStretch()
+        self._stop_sequence_button = QPushButton("Stop multi-action")
+        self._stop_sequence_button.setEnabled(False)
+        self._sequence_runner.state_changed.connect(self._stop_sequence_button.setEnabled)
+        self._stop_sequence_button.clicked.connect(self._cancel_sequence)
+        page_tools.addWidget(self._stop_sequence_button)
+        canvas_layout.addLayout(page_tools)
         canvas_layout.addWidget(self._deck_canvas)
         quick = QFrame()
         quick.setObjectName("quickEditor")
         quick_layout = QVBoxLayout(quick)
-        quick_layout.addWidget(self._quick_title)
+        editor_heading = QHBoxLayout()
+        editor_heading.addWidget(self._quick_title, 1)
+        editor_heading.addWidget(self._undo_button)
+        editor_heading.addWidget(self._redo_button)
+        quick_layout.addLayout(editor_heading)
         fields = QGridLayout()
         fields.setHorizontalSpacing(10)
         fields.setVerticalSpacing(8)
@@ -350,22 +420,24 @@ class MainWindow(QMainWindow):
         self._value_stack.addWidget(self._media_combo)
         self._value_stack.addWidget(self._page_action_combo)
         command_editor = QWidget()
-        command_fields = QHBoxLayout(command_editor)
+        command_fields = QGridLayout(command_editor)
         command_fields.setContentsMargins(0, 0, 0, 0)
         command_fields.setSpacing(10)
-        command_fields.addWidget(self._command_edit, 3)
-        command_fields.addWidget(self._working_directory_edit, 2)
-        command_fields.addWidget(self._environment_edit, 2)
-        command_fields.addWidget(self._timeout_combo, 1)
+        command_fields.addWidget(self._command_edit, 0, 0, 1, 2)
+        command_fields.addWidget(self._working_directory_edit, 0, 2)
+        command_fields.addWidget(self._environment_edit, 1, 0, 1, 2)
+        command_fields.addWidget(self._timeout_combo, 1, 2)
         self._value_stack.addWidget(command_editor)
+        self._value_stack.addWidget(self._sequence_button)
         fields.addWidget(self._value_stack, 1, 0, 1, 4)
         visual_fields = QHBoxLayout()
+        visual_fields.addWidget(self._image_button)
+        visual_fields.addWidget(self._remove_image_button)
         visual_fields.addWidget(self._icon_combo)
         visual_fields.addWidget(self._background_combo)
         visual_fields.addWidget(self._foreground_combo)
         visual_fields.addStretch(1)
-        visual_fields.addWidget(self._undo_button)
-        visual_fields.addWidget(self._redo_button)
+
         fields.addLayout(visual_fields, 2, 0, 1, 4)
         fields.setColumnStretch(0, 2)
         fields.setColumnStretch(1, 2)
@@ -423,6 +495,7 @@ class MainWindow(QMainWindow):
             (None, None),
             ("New page", self._add_page),
             ("Rename page", self._rename_page),
+            ("Duplicate page", self._duplicate_page),
             ("Move page left", lambda: self._move_page(-1)),
             ("Move page right", lambda: self._move_page(1)),
             ("Delete page", self._delete_page),
@@ -446,7 +519,7 @@ class MainWindow(QMainWindow):
 
     @Slot(int)
     def _set_editor_width(self, width: int) -> None:
-        self._quick_scroll.setFixedWidth(width)
+        self._quick_scroll.setFixedWidth(max(width, min(680, self._deck_canvas.width())))
 
     @staticmethod
     def _small_button(text: str, callback: object, tooltip: str) -> QToolButton:
@@ -462,18 +535,62 @@ class MainWindow(QMainWindow):
         label.setObjectName("sectionTitle")
         return label
 
+    def _choose_image(self) -> None:
+        name, _ = QFileDialog.getOpenFileName(
+            self, "Choose key image", "", "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"
+        )
+        if not name:
+            return
+        try:
+            self._image_path = import_image(Path(name), self._store.path.parent / "images")
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Cannot use image", str(error))
+            return
+        self._update_image_controls()
+
+    def _remove_image(self) -> None:
+        self._image_path = ""
+        self._update_image_controls()
+
+    def _update_image_controls(self) -> None:
+        self._image_button.setText("Change image…" if self._image_path else "Image…")
+        self._image_button.setToolTip(self._image_path or "Choose an image or animated GIF / WebP")
+        self._remove_image_button.setEnabled(bool(self._image_path))
+        self._icon_combo.setEnabled(not self._image_path)
+
+    def _edit_sequence(self) -> None:
+        dialog = SequenceEditor(self._sequence_value, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._sequence_value = dialog.value
+            self._sequence_button.setText(f"Edit {len(parse_sequence(dialog.value))} steps…")
+
+    def _cancel_sequence(self) -> None:
+        if self._sequence_runner.cancel():
+            self._action_status.setText("Multi-action stopped")
+
     def _populate_action_library(self) -> None:
         for action_type, label in ACTION_LABELS.items():
             if action_type != "none":
                 item = QListWidgetItem(label)
                 item.setData(Qt.ItemDataRole.UserRole, action_type)
+                item.setToolTip(f"Configure a {label.lower()} action")
                 self._action_list.addItem(item)
+        for preset in SHORTCUT_PRESETS:
+            item = QListWidgetItem(preset.title)
+            item.setData(Qt.ItemDataRole.UserRole, "preset:" + preset.id)
+            item.setToolTip(preset.description)
+            self._action_list.addItem(item)
 
     def _filter_actions(self, text: str) -> None:
         query = text.casefold()
         for row in range(self._action_list.count()):
             item = self._action_list.item(row)
-            item.setHidden(query not in item.text().casefold())
+            identifier = item.data(Qt.ItemDataRole.UserRole)
+            preset = PRESETS_BY_ID.get(str(identifier).removeprefix("preset:"))
+            category = preset.category if preset else "Base actions"
+            selected = self._category_filter.currentText()
+            search_text = f"{item.text()} {item.toolTip()}".casefold()
+            item.setHidden(query not in search_text or selected not in ("All actions", category))
 
     def _active_profile(self) -> ProfileConfig:
         return self._config.active_profile
@@ -516,25 +633,83 @@ class MainWindow(QMainWindow):
 
     def _refresh_canvas(self) -> None:
         page = self._active_page()
+        history_id = (self._active_profile().id, page.id)
+        if self._history_page_id != history_id:
+            if self._history_page_id:
+                self._histories[self._history_page_id] = (self._undo_stack, self._redo_stack)
+            self._undo_stack, self._redo_stack = self._histories.get(history_id, ([], []))
+            self._history_page_id = history_id
+            self._action_engine.invalidate_feedback()
+            self._cancel_sequence()
+        self._undo_button.setEnabled(bool(self._undo_stack))
+        self._redo_button.setEnabled(bool(self._redo_stack))
+        profile = self._active_profile()
+        position = next(i + 1 for i, item in enumerate(profile.pages) if item.id == page.id)
+        self._page_position.setText(f"{page.name} · {position} / {len(profile.pages)}")
+        self._animated_keys.clear()
+        self._last_frames.clear()
         for index, button in enumerate(self._key_buttons):
             key = page.keys.get(index, KeyConfig())
-            label = key.label.strip() or str(index + 1)
-            button.setText(f"{key.icon}\n{label}".strip())
-            button.setStyleSheet(
-                f"background-color: {key.background_color}; color: {key.foreground_color};"
+            button.setText("")
+            button.setAccessibleName(f"Key {index + 1}: {key.label or 'Unassigned'}")
+            button.setToolTip(
+                f"{key.label or 'Key ' + str(index + 1)}\n"
+                f"{ACTION_LABELS.get(key.action_type, key.action_type)}"
+                + (f" · {key.action_value}" if key.action_type == "keyboard" else "")
             )
-            button.setToolTip(ACTION_LABELS.get(key.action_type, key.action_type))
             button.setProperty("configured", key.action_type != "none")
             button.setProperty("actionState", "")
+            if key.image_path:
+                try:
+                    animation = load_animation(key.image_path)
+                    if len(animation.frames) > 1:
+                        self._animated_keys[index] = animation
+                except ValueError:
+                    button.setToolTip(
+                        button.toolTip() + "\nImage unavailable; choose another image."
+                    )
+            self._preview_key(index)
             button.style().unpolish(button)
             button.style().polish(button)
+        if self._animated_keys:
+            self._animation_timer.start()
+        else:
+            self._animation_timer.stop()
         if self._key_buttons:
             self._select_key(min(self._selected_key, len(self._key_buttons) - 1))
         self._render_active_page()
 
+    def _preview_key(self, index: int, elapsed_ms: int = 0) -> None:
+        key = self._active_page().keys.get(index, KeyConfig())
+        label = key.label.strip() or ("" if key.image_path else str(index + 1))
+        picture = key_preview(
+            (144, 144),
+            label,
+            icon=key.icon,
+            foreground=key.foreground_color,
+            background=key.background_color,
+            image_path=key.image_path,
+            elapsed_ms=elapsed_ms,
+            state=self._key_buttons[index].property("actionState") or "",
+        )
+        raw = picture.tobytes("raw", "RGB")
+        image = QImage(raw, 144, 144, 432, QImage.Format.Format_RGB888).copy()
+        self._key_buttons[index].setIcon(QIcon(QPixmap.fromImage(image)))
+
+    def _animate_keys(self) -> None:
+        elapsed = int((monotonic() - self._animation_start) * 1000)
+        for index, animation in self._animated_keys.items():
+            frame = animation.frame_index(elapsed)
+            if self._last_frames.get(index) == frame:
+                continue
+            self._last_frames[index] = frame
+            self._preview_key(index, elapsed)
+            self._render_key(index, elapsed)
+
     def _build_key_grid(self, columns: int, rows: int) -> None:
         while (item := self._key_grid.takeAt(0)) is not None:
             if item.widget() is not None:
+                item.widget().hide()
                 item.widget().deleteLater()
         self._key_buttons.clear()
         for index in range(columns * rows):
@@ -543,6 +718,10 @@ class MainWindow(QMainWindow):
             button.clicked.connect(lambda _checked=False, key=index: self._select_key(key))
             button.action_dropped.connect(self._drop_action)
             button.key_dropped.connect(self._drop_key)
+            button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            button.customContextMenuRequested.connect(
+                lambda point, key=index: self._key_menu(key, point)
+            )
             self._key_grid.addWidget(button, index // columns, index % columns)
             self._key_buttons.append(button)
         self._deck_canvas.configure(columns, rows, self._key_buttons)
@@ -561,6 +740,10 @@ class MainWindow(QMainWindow):
         self._quick_title.setText(f"Key {index + 1} · {action_name}")
         self._label_edit.setText(key.label)
         self._action_combo.setCurrentIndex(max(self._action_combo.findData(key.action_type), 0))
+        self._image_path = key.image_path
+        self._update_image_controls()
+        self._sequence_value = key.action_value if key.action_type == "sequence" else ""
+        self._sequence_button.setText("Edit steps…")
         self._value_edit.setText(key.action_value)
         self._command_edit.setText(key.action_value)
         self._media_combo.setCurrentIndex(max(self._media_combo.findData(key.action_value), 0))
@@ -578,6 +761,10 @@ class MainWindow(QMainWindow):
         self._timeout_combo.setCurrentIndex(timeout_index)
         self._trigger_combo.setCurrentIndex(max(self._trigger_combo.findData(key.trigger), 0))
         self._icon_combo.setCurrentIndex(max(self._icon_combo.findData(key.icon), 0))
+        self._ensure_combo_value(self._background_combo, key.background_color)
+        self._ensure_combo_value(self._foreground_combo, key.foreground_color)
+        self._ensure_combo_value(self._icon_combo, key.icon)
+        self._icon_combo.setCurrentIndex(self._icon_combo.findData(key.icon))
         self._background_combo.setCurrentIndex(
             max(self._background_combo.findData(key.background_color), 0)
         )
@@ -586,11 +773,18 @@ class MainWindow(QMainWindow):
         )
         self._update_action_editor()
 
+    @staticmethod
+    def _ensure_combo_value(combo, value):
+        if combo.findData(value) < 0:
+            combo.addItem(value, value)
+
     @Slot()
     def _apply_key_edits(self) -> None:
         action_type = str(self._action_combo.currentData())
         action_value = (
-            str(self._media_combo.currentData())
+            self._sequence_value
+            if action_type == "sequence"
+            else str(self._media_combo.currentData())
             if action_type == "media"
             else str(self._page_action_combo.currentData())
             if action_type == "page"
@@ -601,7 +795,9 @@ class MainWindow(QMainWindow):
         working_directory = self._working_directory_edit.text().strip()
         environment: dict[str, str] = {}
         try:
-            if action_type == "keyboard":
+            if action_type == "sequence":
+                parse_sequence(action_value)
+            elif action_type == "keyboard":
                 parse_shortcut(action_value)
             elif action_type == "media":
                 media_key(action_value)
@@ -627,6 +823,7 @@ class MainWindow(QMainWindow):
         key.working_directory = working_directory if action_type == "command" else ""
         key.command_timeout = int(self._timeout_combo.currentData())
         key.environment = environment if action_type == "command" else {}
+        key.image_path = self._image_path
         key.icon = str(self._icon_combo.currentData())
         key.background_color = str(self._background_combo.currentData())
         key.foreground_color = str(self._foreground_combo.currentData())
@@ -637,6 +834,8 @@ class MainWindow(QMainWindow):
         self._undo_stack.append(deepcopy(self._active_page().keys))
         self._undo_stack = self._undo_stack[-50:]
         self._redo_stack.clear()
+        self._undo_button.setEnabled(True)
+        self._redo_button.setEnabled(False)
 
     def _restore_keys(self, keys: dict[int, KeyConfig]) -> None:
         self._active_page().keys = deepcopy(keys)
@@ -653,14 +852,54 @@ class MainWindow(QMainWindow):
             self._undo_stack.append(deepcopy(self._active_page().keys))
             self._restore_keys(self._redo_stack.pop())
 
+    def _key_menu(self, index, point):
+        self._select_key(index)
+        menu = QMenu(self)
+        menu.addAction("Copy key", lambda: self._copy_key(index))
+        paste = menu.addAction("Paste key", lambda: self._paste_key(index))
+        paste.setEnabled(self._key_clipboard is not None)
+        menu.addSeparator()
+        menu.addAction("Clear key", lambda: self._clear_key(index))
+        menu.exec(self._key_buttons[index].mapToGlobal(point))
+
+    def _copy_key(self, index):
+        self._key_clipboard = deepcopy(self._active_page().keys.get(index, KeyConfig()))
+
+    def _paste_key(self, index):
+        if self._key_clipboard is not None:
+            self._push_undo()
+            self._active_page().keys[index] = deepcopy(self._key_clipboard)
+            self._save()
+            self._refresh_canvas()
+
+    def _clear_key(self, index):
+        self._push_undo()
+        self._active_page().keys.pop(index, None)
+        self._save()
+        self._refresh_canvas()
+
     @Slot(int, str)
     def _drop_action(self, index: int, label: str) -> None:
-        action_type = next(
-            (key for key, value in ACTION_LABELS.items() if value == label), None
+        if not 0 <= index < len(self._key_buttons):
+            return
+        preset = PRESETS_BY_ID.get(label.removeprefix("preset:"))
+        if preset is None:
+            preset = next((p for p in SHORTCUT_PRESETS if p.title == label), None)
+        action_type = (
+            "keyboard"
+            if preset
+            else next(
+                (key for key, value in ACTION_LABELS.items() if value == label or key == label),
+                None,
+            )
         )
         if action_type is None:
             return
         self._push_undo()
+        if preset:
+            self._active_page().keys[index] = preset.key_config()
+        else:
+            self._active_page().keys[index] = KeyConfig(action_type=action_type)
         self._active_page().key(index).action_type = action_type
         self._selected_key = index
         self._save()
@@ -668,7 +907,9 @@ class MainWindow(QMainWindow):
 
     @Slot(int, int, bool)
     def _drop_key(self, source: int, destination: int, copy: bool) -> None:
-        if source == destination:
+        if source == destination or not all(
+            0 <= index < len(self._key_buttons) for index in (source, destination)
+        ):
             return
         self._push_undo()
         page = self._active_page()
@@ -684,9 +925,16 @@ class MainWindow(QMainWindow):
         self._refresh_canvas()
 
     def _on_action_activated(self, item: QListWidgetItem) -> None:
+        identifier = str(item.data(Qt.ItemDataRole.UserRole))
+        preset = PRESETS_BY_ID.get(identifier.removeprefix("preset:"))
         self._action_combo.setCurrentIndex(
-            self._action_combo.findData(item.data(Qt.ItemDataRole.UserRole))
+            self._action_combo.findData("keyboard" if preset else identifier)
         )
+        if preset:
+            self._label_edit.setText(preset.key_config().label)
+            self._value_edit.setText(preset.shortcut)
+            self._trigger_combo.setCurrentIndex(0)
+            self._action_status.setText(preset.description)
         if str(self._action_combo.currentData()) == "command":
             self._command_edit.setFocus()
         else:
@@ -699,8 +947,12 @@ class MainWindow(QMainWindow):
             "media": 2,
             "page": 3,
             "command": 4,
+            "sequence": 5,
         }.get(action_type, 1)
         self._value_stack.setCurrentIndex(stack_index)
+        self._quick_title.setText(
+            f"Key {self._selected_key + 1} · {ACTION_LABELS.get(action_type, 'Action')}"
+        )
         if action_type == "keyboard":
             self._value_edit.setPlaceholderText("Example: Ctrl+Shift+S")
         elif action_type == "launch":
@@ -772,15 +1024,26 @@ class MainWindow(QMainWindow):
         profile = self._active_profile()
         if len(self._config.profiles) == 1:
             self._show_guardrail("The final profile cannot be deleted.")
-        elif QMessageBox.question(
-            self, "Delete profile", f"Delete profile ‘{profile.name}’?"
-        ) == QMessageBox.StandardButton.Yes:
+        elif (
+            QMessageBox.question(self, "Delete profile", f"Delete profile ‘{profile.name}’?")
+            == QMessageBox.StandardButton.Yes
+        ):
             self._config.delete_profile(profile.id)
             self._save()
             self._refresh_profile_combo()
 
     def _add_page(self) -> None:
         self._active_profile().add_page()
+        self._save()
+        self._refresh_page_combo()
+
+    def _duplicate_page(self) -> None:
+        source = self._active_page()
+        page = self._active_profile().add_page(f"{source.name} copy")
+        page.keys = deepcopy(source.keys)
+        for key in page.keys.values():
+            if key.action_type == "page" and key.action_value == f"page:{source.id}":
+                key.action_value = f"page:{page.id}"
         self._save()
         self._refresh_page_combo()
 
@@ -809,9 +1072,10 @@ class MainWindow(QMainWindow):
         profile, page = self._active_profile(), self._active_page()
         if len(profile.pages) == 1:
             self._show_guardrail("The final page in a profile cannot be deleted.")
-        elif QMessageBox.question(
-            self, "Delete page", f"Delete page ‘{page.name}’?"
-        ) == QMessageBox.StandardButton.Yes:
+        elif (
+            QMessageBox.question(self, "Delete page", f"Delete page ‘{page.name}’?")
+            == QMessageBox.StandardButton.Yes
+        ):
             profile.delete_page(page.id)
             self._save()
             self._refresh_page_combo()
@@ -830,6 +1094,18 @@ class MainWindow(QMainWindow):
         self._save()
 
     def _map_active_application(self) -> None:
+        profile_id = self._config.active_profile_id
+        self._action_status.setText("Focus the target application within 4 seconds…")
+        QTimer.singleShot(4000, lambda: self._finish_application_mapping(profile_id))
+
+    def _finish_application_mapping(self, profile_id: str) -> None:
+        if self.isActiveWindow():
+            self._action_status.setText("Mapping cancelled: focus the target application first")
+            return
+        try:
+            profile = self._config.profile_by_id(profile_id)
+        except KeyError:
+            return
         application = active_application()
         if application is None:
             QMessageBox.information(
@@ -838,11 +1114,9 @@ class MainWindow(QMainWindow):
                 "Install kdotool on KDE/Wayland to use automatic profile switching.",
             )
             return
-        self._config.application_profiles[application] = self._config.active_profile_id
+        self._config.application_profiles[application] = profile.id
         self._save()
-        self._action_status.setText(
-            f"Mapped {application} to {self._config.active_profile.name}"
-        )
+        self._action_status.setText(f"Mapped {application} to {profile.name}")
 
     def _clear_application_rules(self) -> None:
         self._config.application_profiles.clear()
@@ -850,7 +1124,7 @@ class MainWindow(QMainWindow):
         self._action_status.setText("Application profile rules cleared")
 
     def _monitor_active_application(self) -> None:
-        if not self._config.auto_profile_switching:
+        if not self._config.auto_profile_switching or self.isActiveWindow():
             return
         application = active_application()
         profile_id = self._config.application_profiles.get(application or "")
@@ -898,6 +1172,8 @@ class MainWindow(QMainWindow):
             self._activate_device(index, True)
 
     def _activate_device(self, index: int, notify: bool = False) -> None:
+        self._action_engine.reset_key_states()
+        self._cancel_sequence()
         if self._device is not None:
             with suppress(Exception):
                 self._device.set_event_sink(None)
@@ -905,9 +1181,7 @@ class MainWindow(QMainWindow):
         info = self._device.info
         geometry = info.geometry
         self._columns, self._rows = geometry.columns, geometry.rows
-        self._device_status.setText(
-            f"● {info.model} · {geometry.columns}×{geometry.rows}"
-        )
+        self._device_status.setText(f"● {info.model} · {geometry.columns}×{geometry.rows}")
         self._set_device_state("connected")
         self._config.preferred_device_serial = info.serial or self._device_combo.itemData(index)
         self._save()
@@ -945,36 +1219,51 @@ class MainWindow(QMainWindow):
                 if not self._render_key(index):
                     break
 
-    def _render_key(self, index: int) -> bool:
+    def _render_key(self, index: int, elapsed_ms: int = 0) -> bool:
         if self._device is None or index >= self._device.info.geometry.key_count:
             return False
         key = self._active_page().keys.get(index, KeyConfig())
         try:
             if hasattr(self._device, "render_key_config"):
                 render_config = deepcopy(key)
-                render_config.label = render_config.label.strip() or str(index + 1)
-                self._device.render_key_config(index, render_config)
+                render_config.label = render_config.label.strip() or (
+                    "" if render_config.image_path else str(index + 1)
+                )
+                if render_config.image_path:
+                    self._device.render_key_config(
+                        index,
+                        render_config,
+                        self._key_buttons[index].property("actionState") or "",
+                        elapsed_ms=elapsed_ms,
+                    )
+                else:
+                    self._device.render_key_config(index, render_config)
             else:
                 self._device.render_key_label(index, key.label.strip() or str(index + 1))
         except Exception as error:
-            self._show_detection_error(error)
+            self._disconnect_all_devices()
+            self._device_status.setText("Device disconnected")
+            self._action_status.setText(f"Device write failed: {error}")
             return False
         return True
 
     @Slot(object)
     def _on_key_event(self, event: DeckKeyEvent) -> None:
-        if event.key < len(self._key_buttons):
+        if 0 <= event.key < len(self._key_buttons):
             button = self._key_buttons[event.key]
             button.setProperty("pressed", event.pressed)
             button.style().unpolish(button)
             button.style().polish(button)
-            if event.pressed:
-                self._select_key(event.key)
+            source_page = self._active_page().id
             key = self._active_page().keys.get(event.key, KeyConfig())
             result = self._action_engine.handle_key(event.key, key, event.pressed)
-            if result.executed:
-                state = "running" if "running" in result.message.casefold() else (
-                    "success" if result.success else "failure"
+            if result.executed and source_page != self._active_page().id:
+                self._action_status.setText(result.message)
+            elif result.executed:
+                state = (
+                    "running"
+                    if "running" in result.message.casefold()
+                    else ("success" if result.success else "failure")
                 )
                 self._show_action_result(event.key, result.message, state)
 
@@ -1001,7 +1290,11 @@ class MainWindow(QMainWindow):
             button.style().polish(button)
             if self._device is not None and hasattr(self._device, "render_key_config"):
                 key = self._active_page().keys.get(key_index, KeyConfig())
-                self._device.render_key_config(key_index, key, state)
+                try:
+                    self._device.render_key_config(key_index, key, state)
+                except Exception as error:
+                    self._device_status.setText(f"Device write failed: {error}")
+            self._preview_key(key_index)
 
     def _show_detection_error(self, error: Exception) -> None:
         self._device_status.setText("Device error")
@@ -1014,6 +1307,8 @@ class MainWindow(QMainWindow):
         self._device_status.style().polish(self._device_status)
 
     def _disconnect_all_devices(self) -> None:
+        self._action_engine.reset_key_states()
+        self._cancel_sequence()
         devices = list(self._devices)
         if self._device is not None and self._device not in devices:
             devices.append(self._device)
@@ -1075,17 +1370,15 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(STYLESHEET)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if (
-            not self._quit_requested
-            and self._config.close_to_tray
-            and self._tray.isVisible()
-        ):
+        if not self._quit_requested and self._config.close_to_tray and self._tray.isVisible():
             self.hide()
             event.ignore()
             self._notify("SmurfDeck is still running", "Use the tray menu to quit.")
             return
         self._monitor_timer.stop()
         self._application_timer.stop()
+        self._animation_timer.stop()
+        self._sequence_runner.cancel()
         self._save()
         self._disconnect_all_devices()
         self._tray.hide()

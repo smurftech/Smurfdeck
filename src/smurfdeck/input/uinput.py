@@ -33,12 +33,27 @@ class UInputEmitter:
         unsupported = set(keys) - self._supported_keys
         if unsupported:
             raise ValueError(f"Unsupported uinput key codes: {sorted(unsupported)}")
-        for key in keys:
-            self._device.write(ecodes.EV_KEY, key, 1)
-        self._device.syn()
-        for key in reversed(keys):
-            self._device.write(ecodes.EV_KEY, key, 0)
-        self._device.syn()
+        pressed = []
+        failure = None
+        try:
+            for key in keys:
+                self._device.write(ecodes.EV_KEY, key, 1)
+                pressed.append(key)
+            self._device.syn()
+        except OSError as error:
+            failure = error
+        # Attempt every release even when one write fails; report the failure.
+        for key in reversed(pressed):
+            try:
+                self._device.write(ecodes.EV_KEY, key, 0)
+            except OSError as error:
+                failure = failure or error
+        try:
+            self._device.syn()
+        except OSError as error:
+            failure = failure or error
+        if failure is not None:
+            raise failure
 
     def close(self) -> None:
         self._device.close()

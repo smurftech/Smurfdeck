@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -47,26 +48,51 @@ class ActionEngine:
         desktop: DesktopRunner | None = None,
         navigate: Callable[[str], str] | None = None,
         feedback: Callable[[int, ActionResult], None] | None = None,
+        sequence: Callable[[int, str], ActionResult] | None = None,
     ) -> None:
         self._emitter = emitter
         self._desktop = desktop
         self._navigate = navigate
         self._feedback = feedback
+        self._sequence = sequence
+        self._pressed_configs: dict[int, KeyConfig] = {}
         self._key_states: dict[int, bool] = {}
+        self._feedback_generation = 0
+        self._command_tokens: dict[int, int] = {}
 
     def handle_key(self, key_index: int, key: KeyConfig, pressed: bool) -> ActionResult:
         previous = self._key_states.get(key_index, False)
         self._key_states[key_index] = pressed
         if previous == pressed:
             return ActionResult(False, True, "Duplicate key state ignored")
+        if pressed:
+            self._pressed_configs[key_index] = deepcopy(key)
+        else:
+            key = self._pressed_configs.pop(key_index, key)
         if key.action_type == "none":
             return ActionResult(False, True, "No action assigned")
-        trigger_matches = key.trigger == "both" or (
-            key.trigger == "press" and pressed
-        ) or (key.trigger == "release" and not pressed)
+        trigger_matches = (
+            key.trigger == "both"
+            or (key.trigger == "press" and pressed)
+            or (key.trigger == "release" and not pressed)
+        )
         if not trigger_matches:
             return ActionResult(False, True, "Waiting for configured trigger")
+        return self.execute(key_index, key)
+
+    def invalidate_feedback(self) -> None:
+        self._feedback_generation += 1
+        self._command_tokens.clear()
+
+    def reset_key_states(self) -> None:
+        self.invalidate_feedback()
+        self._key_states.clear()
+        self._pressed_configs.clear()
+
+    def execute(self, key_index: int, key: KeyConfig) -> ActionResult:
         try:
+            if key.action_type == "sequence" and self._sequence is not None:
+                return self._sequence(key_index, key.action_value)
             if key.action_type == "keyboard":
                 self._emitter.send_chord(parse_shortcut(key.action_value))
             elif key.action_type == "media":
@@ -76,10 +102,13 @@ class ActionEngine:
             elif key.action_type == "open" and self._desktop is not None:
                 return self._desktop.open_target(key.action_value)
             elif key.action_type == "command" and self._desktop is not None:
+                generation = self._feedback_generation
+                token = self._command_tokens.get(key_index, 0) + 1
+                self._command_tokens[key_index] = token
                 return self._desktop.run_command(
                     key.action_value,
                     key.working_directory,
-                    lambda result: self._report(key_index, result),
+                    lambda result: self._report_command(key_index, result, generation, token),
                     key.command_timeout,
                     key.environment,
                 )
@@ -90,6 +119,10 @@ class ActionEngine:
         except (OSError, ValueError) as error:
             return ActionResult(True, False, str(error))
         return ActionResult(True, True, "Action sent")
+
+    def _report_command(self, key_index, result, generation, token) -> None:
+        if generation == self._feedback_generation and self._command_tokens.get(key_index) == token:
+            self._report(key_index, result)
 
     def _report(self, key_index: int, result: ActionResult) -> None:
         if self._feedback is not None:

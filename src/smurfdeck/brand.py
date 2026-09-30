@@ -101,6 +101,12 @@ QPushButton#primaryButton {
     font: 700 13px "Rajdhani", "Noto Sans", sans-serif;
 }
 QPushButton#primaryButton:hover { background: #1683FF; }
+QPushButton:disabled, QToolButton:disabled { color: #607085; border-color: #243244; }
+QScrollBar:vertical { background: #101722; width: 8px; margin: 0; }
+QScrollBar::handle:vertical { background: #33445A; min-height: 24px; border-radius: 4px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QTableWidget { background: #0C111A; gridline-color: #33445A; }
 QPushButton:hover, QToolButton:hover { border-color: #4FC3FF; }
 QListWidget::item { padding: 9px; border-radius: 4px; }
 QListWidget::item:selected { background: #173A66; color: #4FC3FF; }
